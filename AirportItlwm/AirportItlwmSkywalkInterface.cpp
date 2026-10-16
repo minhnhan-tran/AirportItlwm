@@ -1081,3 +1081,33 @@ IOReturn AirportItlwmSkywalkInterface::getHW_ADDR(apple80211_hw_mac_address *)
     return kIOReturnUnsupported;
 }
 #endif
+
+// Experiment: log every virtual-interface request airportd makes (role=awdl,
+// p2p, ...). With boot-arg itlwm_awdl=1, also try to create an AWDL virtual
+// interface. Default behaviour is unchanged (unsupported).
+IOReturn AirportItlwmSkywalkInterface::
+setVIRTUAL_IF_CREATE(apple80211_virt_if_create_data *data)
+{
+    if (!data)
+        return kIOReturnBadArgument;
+    XYLog("%s version=%u role=%u mac=%02x:%02x:%02x:%02x:%02x:%02x bsd_name=%.*s\n", __FUNCTION__,
+          data->version, data->role, data->mac[0], data->mac[1], data->mac[2], data->mac[3],
+          data->mac[4], data->mac[5], (int)sizeof(data->bsd_name), (const char *)data->bsd_name);
+    uint32_t enable = 0;
+    PE_parse_boot_argn("itlwm_awdl", &enable, sizeof(enable));
+    if (!enable || data->role != APPLE80211_VIF_AWDL) {
+        XYLog("%s unsupported (itlwm_awdl=%u)\n", __FUNCTION__, enable);
+        return kIOReturnUnsupported;
+    }
+    if (fAWDLVif)
+        return kIOReturnExclusiveAccess;
+    IO80211VirtualInterface *vif = NULL;
+    ether_addr mac;
+    memcpy(&mac, data->mac, sizeof(mac));
+    bool ok = instance->attachVirtualInterface(&vif, &mac, data->role, false);
+    XYLog("%s attachVirtualInterface ok=%d vif=%p\n", __FUNCTION__, ok, vif);
+    if (!ok || !vif)
+        return kIOReturnError;
+    fAWDLVif = vif;
+    return kIOReturnSuccess;
+}

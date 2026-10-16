@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.7] — 2026-10-14
+
+### Added
+
+- Sequoia/Tahoe: `setVIRTUAL_IF_CREATE` now logs every virtual-interface
+  request from `airportd` (role, MAC, BSD name) instead of silently returning
+  unsupported, to find out what macOS asks for when it wants `awdl0`.
+- Experimental boot-arg `itlwm_awdl=1`: for an AWDL request, try
+  `attachVirtualInterface()` to create the interface. Off by default (still
+  returns unsupported). This only creates the interface; there is no AWDL
+  protocol, so AirDrop will not work. Untested on hardware.
+  (`AirportItlwm/AirportItlwmSkywalkInterface.cpp/.hpp`)
+
 ## [2.4.6] — 2026-10-13
 
 ### Changed
