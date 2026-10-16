@@ -40,6 +40,11 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   Add `itlwm_he=1` to enable it on supported adapters.
 - WPA2-Personal and WPA2/WPA3 transition networks with optional PMF are supported.
   WPA3-only, mandatory PMF, AWDL / AirDrop, and MLO are not supported.
+- Experimental: `itlwm_awdl=1` makes the driver try to create an AWDL virtual
+  interface (`awdl0`) when `airportd` asks for one. It only creates the
+  interface; there is no AWDL protocol behind it, so AirDrop still does not
+  work, and it may misbehave. Untested on hardware. Without the boot-arg the
+  request is only logged (`log show | grep setVIRTUAL_IF_CREATE`) and refused.
 - Device support follows the upstream hardware table; Tahoe compatibility still
   requires validation on each adapter.
 
@@ -51,8 +56,14 @@ To build locally, install Xcode and Python 3, and check out MacKernelSDK commit
 
 ```sh
 xcodebuild -project itlwm.xcodeproj -scheme AirportItlwm-Tahoe \
-  -configuration Release ARCHS=x86_64 CODE_SIGNING_ALLOWED=NO build
+  -configuration Release ARCHS=x86_64 CODE_SIGNING_ALLOWED=NO \
+  SYMROOT="$PWD/build" build
 ```
+
+With `SYMROOT="$PWD/build"` the unsigned kext is written to
+`build/Release/Tahoe/AirportItlwm.kext` (`build/Release/Sequoia/...` for the
+Sequoia scheme); `build/` is git-ignored. Without it, Xcode places products
+under `~/Library/Developer/Xcode/DerivedData/`.
 
 ## Questions and Issues
 

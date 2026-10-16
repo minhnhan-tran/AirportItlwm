@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.8] — 2026-10-14
+
+### Changed
+
+- README: documented the experimental `itlwm_awdl=1` boot-arg and the
+  `SYMROOT="$PWD/build"` option that puts Release kexts in `build/`.
+
 ## [2.4.7] — 2026-10-14
 
 ### Added
