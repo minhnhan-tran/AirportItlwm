@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] — 2026-11-09
+
+### Added
+
+- iwx: match Killer Wi-Fi 6E AX1675s / AX1675i on PCI device `8086:51F1`
+  (subsystems `1671` / `1672`), same config as the `51F0` entries (upstream
+  issue #45).
+
+### Reviewed, no change
+
+Remaining open upstream issues were checked against this tree:
+
+- #31 (WPA2-Enterprise): the link-up-before-RUN race it suspects is already
+  handled (first beacon held until the port is authorized, EAPOL copied to
+  user space, key install gated on RUN). The reporter's logs do not show a
+  driver fault.
+- #38, #39, #40, #42, #43, #46: wake / fast-join / scan-after-wake; covered by
+  the PR #44 changes in 2.5.0, unverified on hardware.
+- #47 (OpenCore vtable patch failure on Tahoe), #48 (iPhone hotspot), #50,
+  #51, #23, #19, #21 and #15 / #27 / #49 (BE200): need hardware logs or new
+  firmware / chip support; not addressed.
+
 ## [2.5.0] — 2026-11-09
 
 ### Added
