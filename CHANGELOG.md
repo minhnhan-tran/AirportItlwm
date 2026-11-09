@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] — 2026-11-09
+
+### Added
+
+- Merged upstream `laobamac/itlwm` PR #53: experimental AWDL (`awdl0`) for
+  AirDrop on the Tahoe target. Off by default; enabled with the boot-args
+  `-itlawdl`, `-itlawdlp2p`, `-itlawdlpromisc`.
+  - New `AirportItlwmAWDLInterface`, macOS 26 `IO80211VirtualInterface` /
+    `IO80211AWDLProtocol` headers, `setVIRTUAL_IF_CREATE` handling.
+  - iwx: P2P listen path, open receive filter, and a per-station
+    `iwx_tvqm_enable_txq(..., sta_id)`.
+  - net80211: with `-itlawdl` set, management frames from other BSSes and
+    non-matching control frames are dropped on input.
+
+### Changed
+
+- Replaced the 2.4.8 `itlwm_awdl=1` virtual-interface logging experiment with
+  the PR #53 implementation.
+- Merge fix: the PR #44 SCD v3 queue path now honours `sta_id`
+  (`sta_mask`, remove-on-failure), and the main-station TID mask is only
+  updated for `IWX_STATION_ID`.
+
+Untested on hardware; the code comes from an upstream PR built by reverse
+engineering.
+
 ## [2.5.1] — 2026-11-09
 
 ### Added

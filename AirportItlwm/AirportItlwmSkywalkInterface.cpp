@@ -1019,6 +1019,36 @@ static int convertNodeToScanResult(ItlHalService *fHalService, struct ieee80211_
     return 0;
 }
 
+// IO80211PeerManager::getHtCapabilityIE asks for this through the station
+// interface when AWDL comes up and copies the 28 bytes after version; its
+// buildEnhDataRateTlv puts everything after hc_id / hc_len into TLV 7 of
+// our PSF and MI frames. Without it peers see "HTorVHT:0" and never cache
+// us for data (seen in iOS logs). Only with -itlawdl, so stock boots are
+// unchanged.
+IOReturn AirportItlwmSkywalkInterface::
+getHT_CAPABILITY(apple80211_ht_capability *d)
+{
+    static int awdl = -1;
+    if (awdl < 0) {
+        int v;
+        awdl = PE_parse_boot_argn("-itlawdl", &v, sizeof(v)) ? 1 : 0;
+    }
+    struct ieee80211com *ic = fHalService ? fHalService->get80211Controller() : NULL;
+    if (awdl != 1 || !d || !ic)
+        return kIOReturnUnsupported;
+    memset(d, 0, sizeof(*d));
+    d->version = APPLE80211_VERSION;
+    d->hc_id = IEEE80211_ELEMID_HTCAPS;
+    d->hc_len = 26;
+    d->hc_cap = ic->ic_htcaps;
+    d->hc_param = ic->ic_ampdu_params;
+    memcpy(d->hc_mcsset, ic->ic_sup_mcs, sizeof(d->hc_mcsset) < sizeof(ic->ic_sup_mcs) ?
+           sizeof(d->hc_mcsset) : sizeof(ic->ic_sup_mcs));
+    if (!d->hc_mcsset[0])
+        d->hc_mcsset[0] = 0xff;     /* MCS 0-7 */
+    return kIOReturnSuccess;
+}
+
 IOReturn AirportItlwmSkywalkInterface::
 getCURRENT_NETWORK(apple80211_scan_result *sr)
 {
@@ -1091,33 +1121,3 @@ IOReturn AirportItlwmSkywalkInterface::getHW_ADDR(apple80211_hw_mac_address *)
     return kIOReturnUnsupported;
 }
 #endif
-
-// Experiment: log every virtual-interface request airportd makes (role=awdl,
-// p2p, ...). With boot-arg itlwm_awdl=1, also try to create an AWDL virtual
-// interface. Default behaviour is unchanged (unsupported).
-IOReturn AirportItlwmSkywalkInterface::
-setVIRTUAL_IF_CREATE(apple80211_virt_if_create_data *data)
-{
-    if (!data)
-        return kIOReturnBadArgument;
-    XYLog("%s version=%u role=%u mac=%02x:%02x:%02x:%02x:%02x:%02x bsd_name=%.*s\n", __FUNCTION__,
-          data->version, data->role, data->mac[0], data->mac[1], data->mac[2], data->mac[3],
-          data->mac[4], data->mac[5], (int)sizeof(data->bsd_name), (const char *)data->bsd_name);
-    uint32_t enable = 0;
-    PE_parse_boot_argn("itlwm_awdl", &enable, sizeof(enable));
-    if (!enable || data->role != APPLE80211_VIF_AWDL) {
-        XYLog("%s unsupported (itlwm_awdl=%u)\n", __FUNCTION__, enable);
-        return kIOReturnUnsupported;
-    }
-    if (fAWDLVif)
-        return kIOReturnExclusiveAccess;
-    IO80211VirtualInterface *vif = NULL;
-    ether_addr mac;
-    memcpy(&mac, data->mac, sizeof(mac));
-    bool ok = instance->attachVirtualInterface(&vif, &mac, data->role, false);
-    XYLog("%s attachVirtualInterface ok=%d vif=%p\n", __FUNCTION__, ok, vif);
-    if (!ok || !vif)
-        return kIOReturnError;
-    fAWDLVif = vif;
-    return kIOReturnSuccess;
-}
