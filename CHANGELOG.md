@@ -41,8 +41,8 @@ Ported from upstream `laobamac/itlwm` (commits after baseline `d695c97`, up to
 - WPA2/WPA3 transition-mode association; an ordinary PSK (AKM 2) is required
   before the transition-mode conversion.
 - WCL link authorization is handled before RUN (early-EAPOL race).
-- WCL accepts `UPDATE_FAST_LANE` instead of failing the join (Cisco Aironet
-  3800 / PMF); VHT is no longer advertised in association requests on 2.4 GHz.
+- VHT is no longer advertised in association requests on 2.4 GHz (Cisco
+  Aironet 3800 compatibility).
 - Invalid VHT 160 MHz channels fall back to a valid width.
 - iwx: copy only received bytes from the VT-d bounce buffer; all-ones
   register reads are treated as "not ready" (polling runs to the timeout);
