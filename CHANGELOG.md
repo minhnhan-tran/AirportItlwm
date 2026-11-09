@@ -7,22 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.4.9] — 2026-11-09
 
-### Added
-
-- Ported upstream `laobamac/itlwm` changes (baseline `d695c97` → `main`):
-  WCL link authorization before RUN (fixes early-EAPOL race), WCL traffic
-  counters / link-quality reporting, native channel info.
-
 ### Fixed
 
-- WPA2/WPA3 transition-mode association; PSK (AKM 2) is required first.
-- Cisco Aironet 3800 / PMF: accept `UPDATE_FAST_LANE`, no VHT on 2.4 GHz.
+Ported from upstream `laobamac/itlwm` (commits after baseline `d695c97`, up to
+`7204c69`):
+
+- WPA2/WPA3 transition-mode association; an ordinary PSK (AKM 2) is required
+  before the transition-mode conversion.
+- WCL link authorization is handled before RUN (early-EAPOL race).
+- WCL accepts `UPDATE_FAST_LANE` instead of failing the join (Cisco Aironet
+  3800 / PMF); VHT is no longer advertised in association requests on 2.4 GHz.
 - Invalid VHT 160 MHz channels fall back to a valid width.
 - iwx: copy only received bytes from the VT-d bounce buffer; all-ones
-  register reads are treated as "not ready" (polling runs to timeout).
-- Scan timing for firmware without CDB; iwm uses `scanTiming()` suspend
-  time; iwx no longer fragments passive dwells while associated.
-- Rate-control locking and TX aggregation queue validation.
+  register reads are treated as "not ready" (polling runs to the timeout);
+  passive dwells are no longer fragmented while associated.
+- iwm: LMAC and UMAC scans use the `scanTiming()` suspend time.
+- Rate-control locking (Sequoia/Tahoe) and TX aggregation queue validation for
+  newer firmware.
 
 ## [2.4.8] — 2026-10-14
 
