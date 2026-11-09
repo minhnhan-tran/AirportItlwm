@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] — 2026-11-09
+
+### Added
+
+- Merged upstream `laobamac/itlwm` PR #44 (AX201 / sleep-wake work):
+  - iwx: firmware API 77 for AX201 (`iwlwifi-QuZ-a0-hr-b0-77.ucode`).
+  - iwx: Wi-Fi power management while connected.
+  - Fast join: a join request from macOS no longer waits for a full scan;
+    the BSS channel is checked again before falling back to a full scan.
+  - WCL: the driver is reported available when the firmware starts after wake;
+    scan requests are held while the firmware restarts; a deauth is sent to the
+    AP when leaving the network; link up is posted only after the port is
+    authorized; `setWCL_ARP_MODE` / `setPM_MODE` are accepted as no-ops.
+
+### Fixed
+
+- iwx: wait 300 ms for ALIVE on the first firmware load; scan-abort
+  completion handling, firmware restart during an aborted scan, and a failed
+  SCD queue removal.
+- net80211: ignore a disassoc received before the association is complete.
+
+### Not included
+
+- Upstream PR #37 (experimental Meteor Lake / AX211, API 83) conflicts with
+  PR #44 in `ItlIwx.cpp` and is not merged.
+
 ## [2.4.9] — 2026-11-09
 
 ### Fixed
