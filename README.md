@@ -39,13 +39,13 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 - **Wi-Fi 6 (802.11ax / HE) is disabled by default.**
   Add `itlwm_he=1` to enable it on supported adapters.
 - WPA2-Personal and WPA2/WPA3 transition networks with optional PMF are supported.
-  WPA3-only, mandatory PMF, AWDL / AirDrop, and MLO are not supported.
+  WPA3-only, mandatory PMF, and MLO are not supported.
 - Experimental (Tahoe target only): AWDL / AirDrop (`awdl0`), off by default and
   untested on hardware. Boot-args, cumulative: `-itlawdl` (base), `-itlawdlp2p`
   and `-itlawdlpromisc` (iwx P2P listen / receive filter, AX2xx), `-itlawdllisten`,
   `-itlawdltx`, `-itlawdlaw`, `-itlawdldata` (listen, transmit, availability
   windows, data), `-itlawdlnopeerlisten` and `itlawdllistench=<n>` (diagnostics).
-  `-itlawdl` changes the shared receive path: frames from other BSSes are dropped.
+  Once awdl0 has an address, the shared receive path drops frames from other BSSes.
 - Device support follows the upstream hardware table; Tahoe compatibility still
   requires validation on each adapter.
 

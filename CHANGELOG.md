@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] — 2026-11-09
+
+### Fixed
+
+- README: AWDL / AirDrop was still listed as unsupported next to the new
+  experimental AWDL entry; the receive-filter note now says it applies once
+  awdl0 has an address.
+
 ## [2.6.1] — 2026-11-09
 
 ### Changed
