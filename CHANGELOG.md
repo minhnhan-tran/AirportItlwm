@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] — 2026-11-09
+
+### Changed
+
+- README: replaced the stale `itlwm_awdl=1` text (removed in 2.6.0) with the
+  PR #53 boot-args, including `-itlawdllisten`, `-itlawdltx`, `-itlawdlaw`,
+  `-itlawdldata`, `-itlawdlnopeerlisten` and `itlawdllistench=<n>`, which the
+  2.6.0 entry did not list.
+
 ## [2.6.0] — 2026-11-09
 
 ### Added

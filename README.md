@@ -40,11 +40,12 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   Add `itlwm_he=1` to enable it on supported adapters.
 - WPA2-Personal and WPA2/WPA3 transition networks with optional PMF are supported.
   WPA3-only, mandatory PMF, AWDL / AirDrop, and MLO are not supported.
-- Experimental: `itlwm_awdl=1` makes the driver try to create an AWDL virtual
-  interface (`awdl0`) when `airportd` asks for one. It only creates the
-  interface; there is no AWDL protocol behind it, so AirDrop still does not
-  work, and it may misbehave. Untested on hardware. Without the boot-arg the
-  request is only logged (`log show | grep setVIRTUAL_IF_CREATE`) and refused.
+- Experimental (Tahoe target only): AWDL / AirDrop (`awdl0`), off by default and
+  untested on hardware. Boot-args, cumulative: `-itlawdl` (base), `-itlawdlp2p`
+  and `-itlawdlpromisc` (iwx P2P listen / receive filter, AX2xx), `-itlawdllisten`,
+  `-itlawdltx`, `-itlawdlaw`, `-itlawdldata` (listen, transmit, availability
+  windows, data), `-itlawdlnopeerlisten` and `itlawdllistench=<n>` (diagnostics).
+  `-itlawdl` changes the shared receive path: frames from other BSSes are dropped.
 - Device support follows the upstream hardware table; Tahoe compatibility still
   requires validation on each adapter.
 
