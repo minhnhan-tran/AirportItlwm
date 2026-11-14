@@ -13304,7 +13304,15 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         sc->sc_aux_roc_running = 1;
                         sc->sc_awdl_listen_active = 1;
                         sc->sc_p2p_start_us = now;
-                        ric->ic_awdl_roc_delay_us = (uint32_t)(now - sc->sc_p2p_req_us);
+                        /*
+                         * Request->start latency of the firmware jitters (4-10 ms).
+                         * Publish a peak-hold value (fast attack, slow decay) so the
+                         * host asks early enough for the slowest recent start instead
+                         * of following one lucky short sample and missing the AW.
+                         */
+                        uint32_t d = (uint32_t)(now - sc->sc_p2p_req_us);
+                        uint32_t prev = ric->ic_awdl_roc_delay_us;
+                        ric->ic_awdl_roc_delay_us = d >= prev ? d : prev - (prev - d) / 16;
                     } else {
                         uint32_t us = (uint32_t)(now - sc->sc_p2p_start_us);
                         ric->ic_awdl_roc_last_us = us;

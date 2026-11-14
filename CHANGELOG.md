@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.6] — 2026-11-14
+
+### Changed
+
+- AWDL listen windows: the firmware request-to-start delay is now peak-held (fast
+  attack, slow decay) and the host lead time adds 1.5 ms margin. Previously the
+  lead followed the single last sample, so a jittery 4-10 ms start latency made
+  later requests too late and the window missed the peer's AW slot, leaving the
+  Mac barely hearing the phone's replies on channels 6/149 while home is 36.
+
 ## [2.7.5] — 2026-11-14
 
 ### Fixed

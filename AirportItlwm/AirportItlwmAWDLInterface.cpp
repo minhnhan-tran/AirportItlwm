@@ -1287,7 +1287,8 @@ effectiveListenLeadUs() const
 {
     if (fController && fController->fHalService) {
         if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
-            uint32_t d = ic->ic_awdl_roc_delay_us;
+            // ic_awdl_roc_delay_us is a peak-held start latency; add margin for jitter.
+            uint32_t d = ic->ic_awdl_roc_delay_us + 1500;
             if (d > (uint32_t)kListenLeadUs)
                 return d > 25000 ? 25000 : (int64_t)d;
         }
