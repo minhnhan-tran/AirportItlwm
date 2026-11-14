@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] — 2026-11-14
+
+### Fixed
+
+- `AirportItlwmAWDLEthernetInterface`: mark `awdl0` with IORegistry
+  `HiddenInterface` and `HiddenConfiguration` properties so `configd` /
+  `SCNetworkConfiguration` does not register `awdl0` as a user-visible `"Wi-Fi 2"`
+  service (stealing `IOPrimaryInterface` from `en1`) or assign IPv4 Link-Local
+  (`169.254.x.x`), which caused `mDNSResponder` / `wifip2pd` D2D self-conflict
+  loops every 100 ms and stalled AirDrop Bonjour/Rapport resolution on `"Waiting..."`;
+  also drop self-sourced AWDL data frames in `inputAWDLData`.
+
 ## [2.7.2] — 2026-11-14
 
 ### Fixed

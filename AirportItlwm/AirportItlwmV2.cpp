@@ -653,6 +653,10 @@ IONetworkInterface *AirportItlwm::createInterface()
             awdl->release();
             awdl = nullptr;
         }
+        if (awdl) {
+            awdl->setProperty("HiddenInterface", kOSBooleanTrue);
+            awdl->setProperty("HiddenConfiguration", kOSBooleanTrue);
+        }
         return awdl;
     }
 #endif

@@ -42,6 +42,8 @@ initIfnetParams(struct ifnet_init_params *params)
 IOReturn AirportItlwmAWDLEthernetInterface::
 attachToDataLinkLayer(IOOptionBits options, void *parameter)
 {
+    setProperty("HiddenInterface", kOSBooleanTrue);
+    setProperty("HiddenConfiguration", kOSBooleanTrue);
     IOReturn ret = AirportItlwmEthernetInterface::attachToDataLinkLayer(options, parameter);
     if (ret == kIOReturnSuccess && getIfnet()) {
         errno_t err = ifnet_set_lladdr(getIfnet(), &fMac, sizeof(fMac));
@@ -107,6 +109,10 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     uint8_t dst[6], src[6];
     memcpy(dst, wh->i_addr1, 6);
     memcpy(src, wh->i_addr2, 6);
+    if (memcmp(src, fMac.octet, 6) == 0) {
+        mbuf_freem(m);
+        return 1;
+    }
 
     // Keep 14 bytes of the stripped headers for the Ethernet header.
     size_t strip = hdr + llc + awdlHdr - 14;
@@ -1744,6 +1750,8 @@ createAWDLInterface(apple80211_virt_if_create_data *data)
         return kIOReturnError;
     }
     fAWDLBsdIf = OSDynamicCast(AirportItlwmAWDLEthernetInterface, bsd);
+    bsd->setProperty("HiddenInterface", kOSBooleanTrue);
+    bsd->setProperty("HiddenConfiguration", kOSBooleanTrue);
     bsd->registerService();
 
     // The unit is assigned asynchronously by the network stack; awdl0 is the only
