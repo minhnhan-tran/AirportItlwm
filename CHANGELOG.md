@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] — 2026-11-14
+
+### Fixed
+
+- `ItlIwx`: reset `sc_bss_awdl_promisc`, `ic_awdl_listen_active`, and
+  `ic_awdl_promisc` in `iwx_stop` so BSS promiscuous state is re-applied cleanly
+  across NIC resets and sleep/wake; clear `IWX_TXDATA_FLAG_AWDL` in
+  `iwx_txd_done` when reclaiming TX descriptors; only enable `IN_PROMISC` on
+  the BSS MAC once associated (`assoc != 0`).
+- `AirportItlwmAWDLInterface`: copy `setAWDL_OOB_REQUEST` destination and
+  payload inside the workloop gate before calling `trySendPendingOOB` to prevent
+  races with concurrent timer-driven TX.
+
 ## [2.7.0] — 2026-11-14
 
 ### Added

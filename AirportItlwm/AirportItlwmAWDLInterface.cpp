@@ -2279,18 +2279,23 @@ recordOOB(const void *req, bool autoReq)
         memcpy(fMITmpl, p, len);
         fMITmplLen = len;
     } else if (len > 0) {
-        memcpy(fOOBReqDst, raw + 4, 6);
-        memcpy(fOOBReqBuf, p, len);
-        fOOBReqLen = len;
-        fOOBReqPending = true;
-        if (fController && fController->getWorkLoop() && fController->getWorkLoop()->inGate()) {
-            trySendPendingOOB();
-        } else if (_fCommandGate) {
-            _fCommandGate->runAction([](OSObject *, void *self, void *, void *, void *) -> IOReturn {
-                static_cast<AirportItlwmAWDLInterface *>(self)->trySendPendingOOB();
-                return kIOReturnSuccess;
-            }, this);
-        }
+        struct OOBCopyCtx { const uint8_t *dst; const uint8_t *payload; uint16_t len; } ctx = {
+            raw + 4, p, len
+        };
+        auto act = [](OSObject *, void *self, void *arg, void *, void *) -> IOReturn {
+            auto that = static_cast<AirportItlwmAWDLInterface *>(self);
+            auto c = static_cast<const OOBCopyCtx *>(arg);
+            memcpy(that->fOOBReqDst, c->dst, 6);
+            memcpy(that->fOOBReqBuf, c->payload, c->len);
+            that->fOOBReqLen = c->len;
+            that->fOOBReqPending = true;
+            that->trySendPendingOOB();
+            return kIOReturnSuccess;
+        };
+        if (fController && fController->getWorkLoop() && fController->getWorkLoop()->inGate())
+            act(nullptr, this, &ctx, nullptr, nullptr);
+        else if (_fCommandGate)
+            _fCommandGate->runAction(act, this, &ctx);
     }
 }
 

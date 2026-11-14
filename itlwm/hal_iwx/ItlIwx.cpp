@@ -6283,7 +6283,7 @@ iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
     txfail = (status != IWX_TX_STATUS_SUCCESS);
 #ifdef AIRPORT_WCL
     if (txd->flags & IWX_TXDATA_FLAG_LEAVE_DEAUTH) {
-        txd->flags &= ~IWX_TXDATA_FLAG_LEAVE_DEAUTH;
+        txd->flags &= ~(IWX_TXDATA_FLAG_LEAVE_DEAUTH | IWX_TXDATA_FLAG_AWDL);
         if (ic->ic_deauth_tx_pending) {
             ic->ic_deauth_tx_pending = 0;
             getMainCommandGate()->commandWakeup(&ic->ic_deauth_tx_pending);
@@ -9233,7 +9233,7 @@ iwx_mac_ctxt_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action,
     if (ic->ic_vendor_action_handler) {
         cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_CONTROL_AND_MGMT |
                                     IWX_MAC_FILTER_IN_BEACON);
-        bool bssPromisc = iwx_awdl_promisc_enabled() &&
+        bool bssPromisc = assoc && iwx_awdl_promisc_enabled() &&
             ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
         if (bssPromisc)
             cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_PROMISC);
@@ -12318,6 +12318,9 @@ iwx_stop(struct _ifnet *ifp)
     sc->sc_aux_roc_sta = 0;
     sc->sc_p2p_mac = 0;
     sc->sc_p2p_promisc = 0;
+    sc->sc_bss_awdl_promisc = 0;
+    sc->sc_ic.ic_awdl_listen_active = 0;
+    sc->sc_ic.ic_awdl_promisc = 0;
     sc->sc_p2p_bound = 0;
     sc->sc_p2p_sta = 0;
     sc->sc_p2p_queue = 0;
