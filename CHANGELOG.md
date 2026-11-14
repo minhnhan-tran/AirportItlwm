@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lead followed the single last sample, so a jittery 4-10 ms start latency made
   later requests too late and the window missed the peer's AW slot, leaving the
   Mac barely hearing the phone's replies on channels 6/149 while home is 36.
+  Both ROC paths (P2P session protection and the aux-ROC fallback) share one
+  helper, and each sample is capped at 30 ms so a stale request time cannot latch.
 
 ## [2.7.5] — 2026-11-14
 

@@ -9427,6 +9427,19 @@ static bool iwx_awdl_promisc_enabled()
     return enabled == 1;
 }
 
+/*
+ * Fold one request->start latency sample into ic_awdl_roc_delay_us. Samples are
+ * capped first so a stale request time (lost notification) cannot latch a huge
+ * value into the peak-hold; the host clamps its lead at 25 ms anyway.
+ */
+static void
+iwx_awdl_roc_delay_update(struct ieee80211com *ic, uint64_t sample_us)
+{
+    uint32_t d = sample_us > 30000 ? 30000 : (uint32_t)sample_us;
+    uint32_t prev = ic->ic_awdl_roc_delay_us;
+    ic->ic_awdl_roc_delay_us = d >= prev ? d : prev - (prev - d) / 16;
+}
+
 static bool iwx_p2p_listen_enabled()
 {
     static int enabled = -1;
@@ -13199,8 +13212,9 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         sc->sc_aux_roc_started++;
                         sc->sc_aux_roc_running = 1;
                         sc->sc_aux_roc_start_gp2 = le32toh(notif->timestamp);
-                        sc->sc_ic.ic_awdl_roc_delay_us =
-                            sc->sc_aux_roc_start_gp2 - sc->sc_aux_roc_apply_gp2;
+                        /* gp2 is a wrapping 32-bit us clock; subtract in uint32. */
+                        iwx_awdl_roc_delay_update(&sc->sc_ic,
+                            (uint32_t)(sc->sc_aux_roc_start_gp2 - sc->sc_aux_roc_apply_gp2));
                         /* Count rx on the ROC channel from here (see rx path). */
                         sc->sc_awdl_listen_active = 1;
                     }
@@ -13310,9 +13324,7 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                          * host asks early enough for the slowest recent start instead
                          * of following one lucky short sample and missing the AW.
                          */
-                        uint32_t d = (uint32_t)(now - sc->sc_p2p_req_us);
-                        uint32_t prev = ric->ic_awdl_roc_delay_us;
-                        ric->ic_awdl_roc_delay_us = d >= prev ? d : prev - (prev - d) / 16;
+                        iwx_awdl_roc_delay_update(ric, now - sc->sc_p2p_req_us);
                     } else {
                         uint32_t us = (uint32_t)(now - sc->sc_p2p_start_us);
                         ric->ic_awdl_roc_last_us = us;
