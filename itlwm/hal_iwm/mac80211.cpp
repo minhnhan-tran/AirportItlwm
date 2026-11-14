@@ -1574,7 +1574,9 @@ iwm_rx_bmiss(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
     uint32_t missed;
     
     if ((ic->ic_opmode != IEEE80211_M_STA) ||
-        (ic->ic_state != IEEE80211_S_RUN))
+        (ic->ic_state != IEEE80211_S_RUN) ||
+        (ic->ic_flags & IEEE80211_F_BGSCAN) ||
+        (sc->sc_flags & (IWM_FLAG_SCANNING | IWM_FLAG_BGSCAN)))
         return;
     
     //        bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*pkt),

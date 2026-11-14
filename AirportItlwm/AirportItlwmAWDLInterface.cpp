@@ -483,6 +483,8 @@ startAWTimeline()
     publishAWDLAddress();
     if (fController && fController->fHalService) {
         if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            ic->ic_awdl_roc_arg = this;
+            ic->ic_awdl_roc_notify = &AirportItlwmAWDLInterface::rocStartedThunk;
             ic->ic_awdl_want_data = awDataAllowed() ? 1 : 0;
             notifyHalSync();
         }
@@ -508,8 +510,13 @@ stopAWTimeline()
     fPeerChanValid = false;
     fOOBReqPending = false;
     fLastValid = false;
-    if (fController) {
+    __atomic_store_n(&fRocNotifyChan, 0, __ATOMIC_RELEASE);
+    if (fController && fController->fHalService) {
         if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            if (ic->ic_awdl_roc_arg == this) {
+                ic->ic_awdl_roc_notify = nullptr;
+                ic->ic_awdl_roc_arg = nullptr;
+            }
             ic->ic_awdl_want_data = 0;
             notifyHalSync();
         }
@@ -541,6 +548,15 @@ teardownAW()
 {
     fAWRunning = false;
     fListenAlignedActive = false;
+    __atomic_store_n(&fRocNotifyChan, 0, __ATOMIC_RELEASE);
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            if (ic->ic_awdl_roc_arg == this) {
+                ic->ic_awdl_roc_notify = nullptr;
+                ic->ic_awdl_roc_arg = nullptr;
+            }
+        }
+    }
     if (fListenTimer) {
         fListenTimer->cancelTimeout();
         if (fListenTimer->getWorkLoop())
@@ -626,13 +642,11 @@ postAWEvents()
         fLastValid = true;
         fLastSeq = seq;
         unsigned home = currentHomeChannel();
-        if (home && canTxOnChannel((uint8_t)home)) {
-            unsigned pc = fPeerChanValid ? peerChannelAt(start + slotUs() / 2) : home;
-            if (!pc || pc == home) {
-                trySendPendingOOB();
-                if (fDataQCount)
-                    flushData((uint8_t)home);
-            }
+        if (home && canTxOnChannel((uint8_t)home) &&
+            canFlushDataOnChannel((uint8_t)home, start + slotUs() / 2)) {
+            trySendPendingOOB();
+            if (fDataQCount)
+                flushData((uint8_t)home);
         }
         return;
     }
@@ -655,7 +669,8 @@ postAWEvents()
     }
     postMessage(kAWDLMsgAWStart, &ev, sizeof(ev), true);
     maybeListen(ev.chan.channel, seq);
-    if (ev.chan.channel && ev.chan.channel == currentHomeChannel())
+    if (ev.chan.channel && ev.chan.channel == currentHomeChannel() &&
+        canTxOnChannel((uint8_t)ev.chan.channel))
         scheduleTx((uint8_t)ev.chan.channel, start);
 
     fInAW = true;
@@ -925,6 +940,9 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
         int idx = chan == 6 ? 0 : chan == 44 ? 1 : chan == 149 ? 2 : chan == 161 ? 3 : -1;
         if (idx >= 0)
             fListenOnChan[idx]++;
+        if (canTxOnChannel((uint8_t)chan) &&
+            !__atomic_load_n(&fRocNotifyChan, __ATOMIC_ACQUIRE))
+            scheduleTx((uint8_t)chan, hostUs());
     }
     if (((fListenStarted + fListenBusy) & 0x1f) == 1) {
         publishListenState();
@@ -1078,8 +1096,9 @@ scheduleOwnListen(uint64_t afterUs)
     }
     uint64_t from = afterUs > now ? afterUs : now;
     int64_t slot = (int64_t)slotUs();
+    int64_t lead = effectiveListenLeadUs();
     uint16_t pm = presenceMode();
-    int64_t k = floorDiv((int64_t)from + kListenLeadUs - fRefUs, slot) + 1;
+    int64_t k = floorDiv((int64_t)from + lead - fRefUs, slot) + 1;
     // The peer we track (the phone during AirDrop) must be heard at least every
     // few seconds or IO80211Family drops it from NDP (lastAF ~6 s). When our own
     // slot keeps us home (or off AWDL) but the peer's slot at that time is on a
@@ -1106,13 +1125,13 @@ scheduleOwnListen(uint64_t afterUs)
         }
         if (fromPeer)
             fListenPeerSlots++;
-        uint32_t dwell = (uint32_t)((run * slot + kListenLeadUs) / 1024);
+        uint32_t dwell = (uint32_t)((run * slot + lead) / 1024);
         if (dwell > fListenDwellTU)
             dwell = fListenDwellTU;
         fListenNextChan = chan;
         fListenNextDwellTU = dwell;
         uint64_t abs;
-        nanoseconds_to_absolutetime((uint64_t)(fRefUs + k * slot - kListenLeadUs) * 1000, &abs);
+        nanoseconds_to_absolutetime((uint64_t)(fRefUs + k * slot - lead) * 1000, &abs);
         fListenTimer->cancelTimeout();
         fListenTimer->wakeAtTime(abs);
         fListenAlignedActive = true;
@@ -1152,13 +1171,14 @@ scheduleAlignedListen(uint64_t afterUs)
         unsigned run = 1;
         while (run < 16 && fPeerChan[((seq / fPeerPm) + run) % 16] == chan)
             run++;
-        uint32_t dwell = (uint32_t)((run * slot + kListenLeadUs) / 1024);
+        int64_t lead = effectiveListenLeadUs();
+        uint32_t dwell = (uint32_t)((run * slot + lead) / 1024);
         if (dwell > fListenDwellTU)
             dwell = fListenDwellTU;
         fListenNextChan = (uint8_t)chan;
         fListenNextDwellTU = dwell;
         uint64_t abs;
-        nanoseconds_to_absolutetime((uint64_t)(fPeerRefUs + k * slot - kListenLeadUs) * 1000, &abs);
+        nanoseconds_to_absolutetime((uint64_t)(fPeerRefUs + k * slot - lead) * 1000, &abs);
         fListenTimer->cancelTimeout();
         fListenTimer->wakeAtTime(abs);
         fListenAlignedActive = true;
@@ -1181,11 +1201,8 @@ listenTimerFired(OSObject *owner, IOTimerEventSource *)
         if (home != that->fListenNextChan && !(++that->fListenSlot % that->fListenEveryNth)) {
             uint64_t before = that->fListenStarted;
             that->startListen(that->fListenNextChan, dwell, home, true);
-            if (that->fListenStarted != before) {
-                if (awDataAllowed())
-                    that->fListenOwn++;
-                that->scheduleTx(that->fListenNextChan, now + kListenLeadUs);
-            }
+            if (that->fListenStarted != before && awDataAllowed())
+                that->fListenOwn++;
         }
     }
     that->scheduleAlignedListen(now + (uint64_t)dwell * 1024);
@@ -1251,47 +1268,134 @@ scheduleTx(uint8_t chan, uint64_t slotStartUs)
     // awdl0 data frames must still go out.
     fTxChan = chan;
     fTxSlotUs = slotStartUs;
-    fTxPhase = 1;
-    uint64_t abs;
-    nanoseconds_to_absolutetime((slotStartUs + kTxPSFAtUs) * 1000, &abs);
     fTxTimer->cancelTimeout();
-    fTxTimer->wakeAtTime(abs);
+    if (chan == currentHomeChannel() || canTxOnChannel(chan)) {
+        fTxPhase = 1;
+        uint64_t abs;
+        nanoseconds_to_absolutetime((slotStartUs + kTxPSFAtUs) * 1000, &abs);
+        fTxTimer->wakeAtTime(abs);
+    } else {
+        // Off-channel ROC is granted asynchronously by firmware (up to ~55 ms
+        // when waiting for an imminent AP beacon); rocStartedThunk wakes
+        // fTxTimer as soon as the session-protection START notification fires.
+        fTxPhase = 0;
+    }
+}
+
+int64_t AirportItlwmAWDLInterface::
+effectiveListenLeadUs() const
+{
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            uint32_t d = ic->ic_awdl_roc_delay_us;
+            if (d > (uint32_t)kListenLeadUs)
+                return d > 25000 ? 25000 : (int64_t)d;
+        }
+    }
+    return kListenLeadUs;
+}
+
+bool AirportItlwmAWDLInterface::
+peerUsesChannel(uint8_t chan) const
+{
+    if (!chan || !fPeerChanValid)
+        return true;
+    for (unsigned i = 0; i < 16; i++)
+        if (fPeerChan[i] == chan)
+            return true;
+    return false;
+}
+
+bool AirportItlwmAWDLInterface::
+canFlushDataOnChannel(uint8_t chan, uint64_t whenUs) const
+{
+    if (!chan)
+        return false;
+    unsigned home = currentHomeChannel();
+    if (chan == home) {
+        if (fPeerChanValid) {
+            unsigned pc = peerChannelAt(whenUs);
+            return pc != 0 && pc == home;
+        }
+        return home == 6 || home == 44 || home == 149;
+    }
+    if (!fPeerChanValid)
+        return true;
+    unsigned pc = peerChannelAt(whenUs);
+    return pc == chan || (pc == 0 && peerUsesChannel(chan));
+}
+
+void AirportItlwmAWDLInterface::
+rocStartedThunk(void *arg, uint8_t chan)
+{
+    AirportItlwmAWDLInterface *that = static_cast<AirportItlwmAWDLInterface *>(arg);
+    if (!that || !chan || !that->fAWRunning || !awTxAllowed())
+        return;
+    __atomic_store_n(&that->fRocNotifyChan, chan, __ATOMIC_RELEASE);
+    if (IOTimerEventSource *t = that->fTxTimer)
+        t->setTimeoutUS(1000);
 }
 
 void AirportItlwmAWDLInterface::
 txTimerFired(OSObject *owner, IOTimerEventSource *)
 {
     AirportItlwmAWDLInterface *that = OSDynamicCast(AirportItlwmAWDLInterface, owner);
-    if (!that || !that->fTxPhase || !that->fAWRunning)
+    if (!that || !that->fAWRunning)
         return;
+    uint8_t rocChan = __atomic_exchange_n(&that->fRocNotifyChan, 0, __ATOMIC_ACQUIRE);
+    if (rocChan) {
+        that->fTxChan = rocChan;
+        that->fTxSlotUs = hostUs();
+        that->fTxPhase = 1;
+    }
+    if (!that->fTxPhase)
+        return;
+    bool onRoc = that->fTxChan != that->currentHomeChannel();
+    if (onRoc && !that->canTxOnChannel(that->fTxChan)) {
+        that->fTxPhase = 0;
+        return;
+    }
     if (that->fTxPhase == 1) {
         if (that->fSyncTmplLen)
             that->sendAWDLFrame(false);
         that->trySendPendingOOB();
-        if (awDataAllowed() && that->fDataQCount) {
-            unsigned pc = that->fPeerChanValid ? that->peerChannelAt(hostUs()) : that->fTxChan;
-            if (!pc || pc == that->fTxChan)
-                that->flushData(that->fTxChan);
-        }
+        if (awDataAllowed() && that->fDataQCount &&
+            that->canFlushDataOnChannel(that->fTxChan, hostUs()))
+            that->flushData(that->fTxChan);
         that->fTxPhase = 2;
         uint64_t abs;
-        nanoseconds_to_absolutetime((that->fTxSlotUs + kTxMIAtUs) * 1000, &abs);
+        uint64_t miOffsetUs = onRoc ? 16000 : kTxMIAtUs;
+        nanoseconds_to_absolutetime((that->fTxSlotUs + miOffsetUs) * 1000, &abs);
         that->fTxTimer->wakeAtTime(abs);
+        return;
+    }
+    if (that->fTxPhase == 2) {
+        that->trySendPendingOOB();
+        if (that->fMITmplLen && that->fAfTxMode != 2)
+            that->sendAWDLFrame(true);
+        if (awDataAllowed()) {
+            if (that->canFlushDataOnChannel(that->fTxChan, hostUs()))
+                that->flushData(that->fTxChan);
+            else if (that->fDataQCount)
+                that->fDataTxNotCommon++;
+        }
+        if (onRoc) {
+            that->fTxPhase = 3;
+            uint64_t abs;
+            nanoseconds_to_absolutetime((that->fTxSlotUs + 40000) * 1000, &abs);
+            that->fTxTimer->wakeAtTime(abs);
+        } else {
+            that->fTxPhase = 0;
+        }
+        if (((that->fTxPSF + that->fTxMI + that->fTxRefused) & 0x1f) <= 1)
+            that->publishTxState();
         return;
     }
     that->fTxPhase = 0;
     that->trySendPendingOOB();
-    if (that->fMITmplLen && that->fAfTxMode != 2)
-        that->sendAWDLFrame(true);
-    if (awDataAllowed()) {
-        unsigned pc = that->fPeerChanValid ? that->peerChannelAt(hostUs()) : that->fTxChan;
-        if (!pc || pc == that->fTxChan)
-            that->flushData(that->fTxChan);
-        else if (that->fDataQCount)
-            that->fDataTxNotCommon++;
-    }
-    if (((that->fTxPSF + that->fTxMI + that->fTxRefused) & 0x1f) <= 1)
-        that->publishTxState();
+    if (awDataAllowed() && that->fDataQCount &&
+        that->canFlushDataOnChannel(that->fTxChan, hostUs()))
+        that->flushData(that->fTxChan);
 }
 
 // Sync parameters TLV as parsed by IO80211AWDLPeer::parseAwdlSyncParamsTlv
@@ -1469,9 +1573,7 @@ trySendPendingOOB()
     if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan) {
         chan = ic->ic_awdl_listen_chan;
     } else if (unsigned home = currentHomeChannel()) {
-        bool isMcast = (fOOBReqDst[0] & 1) != 0;
-        unsigned pc = fPeerChanValid ? peerChannelAt(hostUs()) : home;
-        if (isMcast || !pc || pc == home)
+        if (canFlushDataOnChannel((uint8_t)home, hostUs()))
             chan = (uint8_t)home;
     }
     if (!chan || !canTxOnChannel(chan))
@@ -1504,12 +1606,8 @@ enqueueData(mbuf_t m)
             if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan) {
                 flushData(ic->ic_awdl_listen_chan);
             } else if (unsigned home = currentHomeChannel()) {
-                uint8_t eh0 = 0;
-                if (mbuf_pkthdr_len(m) >= 1)
-                    mbuf_copydata(m, 0, 1, &eh0);
-                bool isMcast = (eh0 & 1) != 0;
-                unsigned pc = fPeerChanValid ? peerChannelAt(hostUs()) : home;
-                if (canTxOnChannel((uint8_t)home) && (isMcast || !pc || pc == home))
+                if (canTxOnChannel((uint8_t)home) &&
+                    canFlushDataOnChannel((uint8_t)home, hostUs()))
                     flushData((uint8_t)home);
             }
         }

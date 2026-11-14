@@ -6518,7 +6518,10 @@ iwx_rx_bmiss(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
     uint32_t missed;
     
     if ((ic->ic_opmode != IEEE80211_M_STA) ||
-        (ic->ic_state != IEEE80211_S_RUN))
+        (ic->ic_state != IEEE80211_S_RUN) ||
+        (ic->ic_flags & IEEE80211_F_BGSCAN) ||
+        (sc->sc_flags & (IWX_FLAG_SCANNING | IWX_FLAG_BGSCAN)) ||
+        sc->sc_aux_roc_running)
         return;
     
     //    bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*pkt),
@@ -13151,6 +13154,7 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         sc->sc_ic.ic_awdl_listen_done++;
                     } else if (action & IWX_TE_V2_NOTIF_HOST_EVENT_START) {
                         sc->sc_aux_roc_started++;
+                        sc->sc_aux_roc_running = 1;
                         sc->sc_aux_roc_start_gp2 = le32toh(notif->timestamp);
                         sc->sc_ic.ic_awdl_roc_delay_us =
                             sc->sc_aux_roc_start_gp2 - sc->sc_aux_roc_apply_gp2;
@@ -13158,6 +13162,11 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         sc->sc_awdl_listen_active = 1;
                     }
                     iwx_aux_roc_sync_counters(sc);
+                    if ((action & IWX_TE_V2_NOTIF_HOST_EVENT_START) &&
+                        sc->sc_ic.ic_awdl_roc_notify) {
+                        sc->sc_ic.ic_awdl_roc_notify(sc->sc_ic.ic_awdl_roc_arg,
+                            sc->sc_ic.ic_awdl_listen_chan);
+                    }
                     break;
                 }
                 if (sc->sc_time_event_uid != le32toh(notif->unique_id))
@@ -13266,6 +13275,11 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         ric->ic_awdl_listen_done++;
                     }
                     iwx_aux_roc_sync_counters(sc);
+                    if (le32toh(notif->status) && le32toh(notif->start) &&
+                        ric->ic_awdl_roc_notify) {
+                        ric->ic_awdl_roc_notify(ric->ic_awdl_roc_arg,
+                            ric->ic_awdl_listen_chan);
+                    }
                     break;
                 }
                 if (!notif->status) {

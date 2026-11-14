@@ -1441,6 +1441,12 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 		XYLog("%s: %s -> %s\n", ifp->if_xname,
 		    ieee80211_state_name[ostate], ieee80211_state_name[nstate]);
 	ic->ic_state = nstate;			/* state transition */
+	if (nstate == IEEE80211_S_INIT || nstate == IEEE80211_S_SCAN) {
+		timeout_del(&ic->ic_bgscan_timeout);
+		ic->ic_flags &= ~IEEE80211_F_BGSCAN;
+		if (nstate == IEEE80211_S_INIT)
+			ic->ic_flags &= ~IEEE80211_F_ASCAN;
+	}
 	ni = ic->ic_bss;			/* NB: no reference held */
 	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
 	ic->ic_xflags &= ~IEEE80211_F_TX_MGMT_ONLY;

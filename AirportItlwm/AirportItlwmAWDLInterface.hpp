@@ -269,7 +269,11 @@ private:
     // Stage 3 step 1 (-itlawdltx): send a PSF and an MI in the peer's AW
     // during each aligned listen dwell.
     static void txTimerFired(OSObject *owner, IOTimerEventSource *sender);
+    static void rocStartedThunk(void *arg, uint8_t chan);
     void scheduleTx(uint8_t chan, uint64_t slotStartUs);
+    int64_t effectiveListenLeadUs() const;
+    bool peerUsesChannel(uint8_t chan) const;
+    bool canFlushDataOnChannel(uint8_t chan, uint64_t whenUs) const;
     void sendAWDLFrame(bool mi);
     bool sendAWDLPayload(bool mi, const uint8_t *dstMac, const uint8_t *tmpl, size_t tmplLen, uint8_t chan);
     void trySendPendingOOB();
@@ -306,7 +310,8 @@ public:
 private:
     IOTimerEventSource *fTxTimer;
     uint8_t fTxChan;
-    uint8_t fTxPhase;               // 0 idle, 1 PSF next, 2 MI next
+    uint8_t fTxPhase;               // 0 idle, 1 PSF next, 2 MI next, 3 data flush
+    volatile uint8_t fRocNotifyChan;
     uint64_t fTxSlotUs;
     uint16_t fTxSeq;                // 802.11 sequence number
     uint32_t fMasterChannel;        // setAWDL_MASTER_CHANNEL

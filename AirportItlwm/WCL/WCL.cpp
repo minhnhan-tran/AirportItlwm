@@ -366,7 +366,12 @@ void AirportItlwmSkywalkInterface::finishWCLScan(IOReturn status)
     scanPending = false;
     scanCompleted = false;
     scanSource->cancelTimeout();
-    fHalService->get80211Controller()->ic_wcl_scan_requested = false;
+    ieee80211com *ic = fHalService->get80211Controller();
+    ic->ic_wcl_scan_requested = false;
+    if (status != kIOReturnSuccess) {
+        ic->ic_wcl_scan_active = false;
+        ic->ic_flags &= ~(IEEE80211_F_BGSCAN | IEEE80211_F_ASCAN);
+    }
     /*
      * Each result was posted when its beacon arrived, and the system dates
      * results by arrival. When it asks for a long scan with a short maximum
@@ -769,7 +774,7 @@ IOReturn AirportItlwmSkywalkInterface::leaveWCLNetwork()
     explicit_bzero(ic->ic_psk, sizeof(ic->ic_psk));
     clearWCLPMKSA();
     ic->ic_wcl_enterprise = false;
-    ic->ic_flags &= ~(IEEE80211_F_PSK | IEEE80211_F_DESBSSID);
+    ic->ic_flags &= ~(IEEE80211_F_PSK | IEEE80211_F_DESBSSID | IEEE80211_F_BGSCAN);
     ic->ic_des_esslen = 0;
     bzero(ic->ic_des_essid, sizeof(ic->ic_des_essid));
     return kIOReturnSuccess;

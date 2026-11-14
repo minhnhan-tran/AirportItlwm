@@ -495,6 +495,8 @@ struct ieee80211com {
      */
     int             (*ic_awdl_listen)(struct ieee80211com *, uint8_t chan,
                         uint16_t dwell_tu);
+    void            (*ic_awdl_roc_notify)(void *, uint8_t chan);
+    void            *ic_awdl_roc_arg;
     /* Frames the firmware delivered on the listen channel while off-channel. */
     uint8_t         ic_awdl_listen_chan;
     uint32_t        ic_awdl_listen_rx_all;

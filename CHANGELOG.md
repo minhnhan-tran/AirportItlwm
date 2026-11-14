@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] — 2026-11-14
+
+### Fixed
+
+- `AirportItlwmAWDLInterface` / `ItlIwx`: trigger off-channel AWDL `PSF`, `MIF`
+  (Bonjour `_airdrop._tcp` / `_companion-link._tcp` TLVs), OOB, and `awdl0` data
+  transmission from the firmware remain-on-channel `START` notification
+  (`ic_awdl_roc_notify`) with adaptive ROC lead timing instead of a fixed 15/30 ms
+  wall-clock timer that fired before Intel session protection started (causing
+  74% `EAGAIN` `AWDLTxFwBusy` drops and zero unaligned `PSF`/`MIF` advertisements
+  on social channels 6/149 when associated on another 5 GHz channel such as 36).
+- `AirportItlwmAWDLInterface`: stop draining `awdl0` multicast (mDNS/NDP) and
+  `pc == 0` extension-slot data/OOB frames onto a non-shared home channel (where
+  `228/247` packets were previously lost when the peer only listened on 6/149),
+  holding them for the active off-channel ROC dwell instead.
+- `ItlIwx` / `ItlIwm`: ignore firmware missed-beacon notifications while an
+  off-channel scan, background scan, or AWDL remain-on-channel window is active,
+  preventing a background scan from arming `ic_mgt_timer` via `PROBE_REQ` and
+  dropping the live Wi-Fi link mid-scan.
+- `itl80211` / `WCL`: clear `IEEE80211_F_BGSCAN` whenever transitioning to
+  `IEEE80211_S_INIT` / `IEEE80211_S_SCAN`, leaving a WCL network, aborting/timing
+  out a WCL scan, or finishing `ieee80211_end_scan` outside `IEEE80211_S_RUN`,
+  fixing a permanent `kIOReturnBusy` (`0xe00002d5`) scan/join wedge (`"Unable to
+  join the network … The network could not be found."`).
+
 ## [2.7.3] — 2026-11-14
 
 ### Fixed

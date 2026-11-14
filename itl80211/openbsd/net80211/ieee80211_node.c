@@ -1404,11 +1404,17 @@ ieee80211_end_scan(struct _ifnet *ifp)
     int bgscan = ((ic->ic_flags & IEEE80211_F_BGSCAN) &&
                   ic->ic_opmode == IEEE80211_M_STA &&
                   ic->ic_state == IEEE80211_S_RUN);
+    if (!bgscan)
+        ic->ic_flags &= ~IEEE80211_F_BGSCAN;
     int roamscan = bgscan &&
                 (ic->ic_flags & IEEE80211_F_DISABLE_BG_AUTO_CONNECT) == 0;
     
     if (ic->ic_event_handler)
         (*ic->ic_event_handler)(ic, IEEE80211_EVT_SCAN_DONE, NULL);
+    if (ic->ic_state == IEEE80211_S_INIT) {
+        ic->ic_flags &= ~IEEE80211_F_ASCAN;
+        return;
+    }
     
     if (ifp->if_flags & IFF_DEBUG)
         XYLog("%s: end %s scan\n", ifp->if_xname,
