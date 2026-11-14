@@ -533,8 +533,13 @@ struct ieee80211com {
      */
     int             (*ic_awdl_tx)(struct ieee80211com *, uint8_t chan,
                         const uint8_t *frame, size_t len);
+    void            (*ic_awdl_sync_notify)(struct ieee80211com *);
     uint32_t        ic_awdl_tx_sent;     /* queued to the firmware */
+    uint32_t        ic_awdl_tx_home;     /* queued on associated home channel */
     uint32_t        ic_awdl_tx_busy;     /* refused: not dwelling on chan */
+    uint8_t         ic_awdl_listen_active;
+    uint8_t         ic_awdl_promisc;
+    uint32_t        ic_awdl_rx_promisc_drop;
     uint32_t        ic_awdl_tx_err;      /* refused: ring full, no mbuf, DMA */
     uint32_t        ic_awdl_tx_ok;       /* TX_CMD response success */
     uint32_t        ic_awdl_tx_fail;
@@ -556,6 +561,7 @@ struct ieee80211com {
     uint32_t        ic_awdl_rx_uc_action;
     uint32_t        ic_awdl_rx_uc_data;
     uint32_t        ic_awdl_rx_uc_other;
+    uint32_t        ic_awdl_rx_mc_data;
     uint8_t         ic_awdl_rx_uc_last_src[IEEE80211_ADDR_LEN];
     uint8_t         ic_awdl_rx_uc_last_chan;
     uint32_t        ic_awdl_p2p_addr_changes;

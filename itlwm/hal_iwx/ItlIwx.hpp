@@ -431,7 +431,8 @@ public:
     static int    iwx_bgscan(struct ieee80211com *);
     static int    iwx_awdl_listen(struct ieee80211com *, uint8_t, uint16_t);
     static int    iwx_awdl_tx(struct ieee80211com *, uint8_t, const uint8_t *, size_t);
-    int    iwx_awdl_tx_frame(struct iwx_softc *, const uint8_t *, size_t);
+    static void   iwx_awdl_sync_notify(struct ieee80211com *);
+    int    iwx_awdl_tx_frame(struct iwx_softc *, int, const uint8_t *, size_t);
     int    iwx_awdl_listen_v14(struct iwx_softc *, uint8_t, uint16_t);
     void   iwx_awdl_listen_abort(struct iwx_softc *);
     int    iwx_aux_roc(struct iwx_softc *, uint8_t, uint16_t);

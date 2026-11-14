@@ -1050,6 +1050,29 @@ getHT_CAPABILITY(apple80211_ht_capability *d)
 }
 
 IOReturn AirportItlwmSkywalkInterface::
+getVHT_CAPABILITY(apple80211_vht_capability *d)
+{
+    static int awdl = -1;
+    if (awdl < 0) {
+        int v;
+        awdl = PE_parse_boot_argn("-itlawdl", &v, sizeof(v)) ? 1 : 0;
+    }
+    struct ieee80211com *ic = fHalService ? fHalService->get80211Controller() : NULL;
+    if (awdl != 1 || !d || !ic || !(ic->ic_modecaps & (1 << IEEE80211_MODE_11A)))
+        return kIOReturnUnsupported;
+    memset(d, 0, sizeof(*d));
+    d->version = APPLE80211_VERSION;
+    /* 191 (VHT Capabilities Element ID) | (12 << 8) = 3263: IE header + 12-byte body. */
+    d->cap = 191 | (12 << 8);
+    d->unk1 = ic->ic_vhtcaps ? ic->ic_vhtcaps : 0x038001b2;
+    d->unk2 = ic->ic_vht_rx_mcs_map ? ic->ic_vht_rx_mcs_map : 0xfffa;
+    d->unk3 = ic->ic_vht_rx_highest;
+    d->unk4 = ic->ic_vht_tx_mcs_map ? ic->ic_vht_tx_mcs_map : 0xfffa;
+    d->unk5 = ic->ic_vht_tx_highest;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmSkywalkInterface::
 getCURRENT_NETWORK(apple80211_scan_result *sr)
 {
     if (fHalService->get80211Controller()->ic_state != IEEE80211_S_RUN || fHalService->get80211Controller()->ic_bss == NULL)

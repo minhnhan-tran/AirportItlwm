@@ -475,6 +475,13 @@ startAWTimeline()
     fInAW = false;
     fAWRunning = true;
     publishAWDLAddress();
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            ic->ic_awdl_want_data = awDataAllowed() ? 1 : 0;
+            notifyHalSync();
+        }
+    }
+    publishSyncState();
     AWDL_LOG("seq %u slot %llu us", fRefSeq, slotUs());
     scheduleNextAW(now);
     if (awDataAllowed() && awListenAllowed())
@@ -493,9 +500,13 @@ stopAWTimeline()
     fListenAlignedActive = false;
     fPeerValid = false;
     fPeerChanValid = false;
+    fOOBReqPending = false;
+    fLastValid = false;
     if (fController) {
-        if (ieee80211com *ic = fController->fHalService->get80211Controller())
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
             ic->ic_awdl_want_data = 0;
+            notifyHalSync();
+        }
     }
     if (fListenTimer)
         fListenTimer->cancelTimeout();
@@ -608,6 +619,15 @@ postAWEvents()
     if (slotChan && !slotChan->channel) {
         fLastValid = true;
         fLastSeq = seq;
+        unsigned home = currentHomeChannel();
+        if (home && canTxOnChannel((uint8_t)home)) {
+            unsigned pc = fPeerChanValid ? peerChannelAt(start + slotUs() / 2) : home;
+            if (!pc || pc == home) {
+                trySendPendingOOB();
+                if (fDataQCount)
+                    flushData((uint8_t)home);
+            }
+        }
         return;
     }
 
@@ -629,6 +649,8 @@ postAWEvents()
     }
     postMessage(kAWDLMsgAWStart, &ev, sizeof(ev), true);
     maybeListen(ev.chan.channel, seq);
+    if (ev.chan.channel && ev.chan.channel == currentHomeChannel())
+        scheduleTx((uint8_t)ev.chan.channel, start);
 
     fInAW = true;
     fLastValid = true;
@@ -674,7 +696,7 @@ syncFromFrame(const uint8_t *af, size_t len, const uint8_t *src, uint64_t rxUs)
             int64_t txDelay = (int32_t)(phyTx - targetTx);
             if (txDelay < 0 || txDelay > 100000)
                 txDelay = 0;
-            int64_t boundary = (int64_t)rxUs + (int64_t)down * 1024;
+            int64_t boundary = (int64_t)rxUs + (int64_t)down * 1024 - txDelay;
             uint16_t seq = (uint16_t)(nextSeq / pm * pm + pm);
 
             // Error of our timeline at that boundary.
@@ -701,6 +723,10 @@ syncFromFrame(const uint8_t *af, size_t len, const uint8_t *src, uint64_t rxUs)
             fRefUs = boundary;
             fRefSeq = seq;
             fSyncUpdates++;
+            if (seqErr) {
+                fLastValid = false;
+                publishSyncState();
+            }
             if (fSyncUpdates <= 4 || (fSyncUpdates & 0x3f) == 0 || seqErr) {
                 setProperty("AWDLSyncSeqErr", (uint64_t)(int64_t)seqErr, 32);
                 publishSyncState();
@@ -1001,6 +1027,14 @@ trackPeer(const uint8_t *af, size_t len, const uint8_t *src, uint64_t rxUs, unsi
     fPeerValid = true;
     fPeerSeenUs = rxUs;
     fPeerUpdates++;
+    if (awDataAllowed() && fAWRunning && fController) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            if (!ic->ic_awdl_want_data) {
+                ic->ic_awdl_want_data = 1;
+                notifyHalSync();
+            }
+        }
+    }
     if (!fListenAlignedActive)
         scheduleAlignedListen(hostUs());
 }
@@ -1030,9 +1064,12 @@ scheduleOwnListen(uint64_t afterUs)
         return false;
     unsigned home = ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan);
     uint64_t now = hostUs();
-    // Data frames are only accepted while a peer is around (see ic_awdl_want_data);
-    // the P2P MAC picks the change up before the next dwell.
-    ic->ic_awdl_want_data = fPeerValid && now - fPeerSeenUs <= kPeerStaleUs;
+    bool wantData = awDataAllowed() && fAWRunning &&
+        (fPeerTrafficActive > 0 || !fPeerValid || now - fPeerSeenUs <= kPeerStaleUs);
+    if ((int)wantData != ic->ic_awdl_want_data) {
+        ic->ic_awdl_want_data = wantData ? 1 : 0;
+        notifyHalSync();
+    }
     uint64_t from = afterUs > now ? afterUs : now;
     int64_t slot = (int64_t)slotUs();
     uint16_t pm = presenceMode();
@@ -1160,15 +1197,52 @@ static const int64_t kTxPSFAtUs = 1000;
 static const int64_t kTxMIAtUs = 4000;
 enum : uint8_t { kAWDLSubtypePSF = 0, kAWDLSubtypeMI = 3 };
 
+unsigned AirportItlwmAWDLInterface::
+currentHomeChannel() const
+{
+    if (!fController || !fController->fHalService)
+        return 0;
+    ieee80211com *ic = fController->fHalService->get80211Controller();
+    if (!ic || ic->ic_state != IEEE80211_S_RUN || !ic->ic_bss ||
+        !ic->ic_bss->ni_chan || ic->ic_bss->ni_chan == IEEE80211_CHAN_ANYC)
+        return 0;
+    return ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan);
+}
+
+bool AirportItlwmAWDLInterface::
+canTxOnChannel(uint8_t chan) const
+{
+    if (!chan || !fController || !fController->fHalService)
+        return false;
+    ieee80211com *ic = fController->fHalService->get80211Controller();
+    if (!ic || !ic->ic_awdl_tx)
+        return false;
+    if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan == chan)
+        return true;
+    if (!ic->ic_awdl_listen_active && currentHomeChannel() == chan)
+        return true;
+    return false;
+}
+
+void AirportItlwmAWDLInterface::
+notifyHalSync()
+{
+    if (!fController || !fController->fHalService)
+        return;
+    if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+        if (ic->ic_awdl_sync_notify)
+            ic->ic_awdl_sync_notify(ic);
+    }
+}
+
 void AirportItlwmAWDLInterface::
 scheduleTx(uint8_t chan, uint64_t slotStartUs)
 {
     if (!awTxAllowed() || !fTxTimer || !fAWRunning)
         return;
-    if (fAfTxMode == 3) {
-        fTxSkipMode++;
-        return;
-    }
+    // Note: IO80211AWDLPeerManager sets fAfTxMode = 3 during Scan + Data (host
+    // OOB/UMI mode). Never abort TX on mode == 3 — PSF, OOB/UMI, and queued
+    // awdl0 data frames must still go out.
     fTxChan = chan;
     fTxSlotUs = slotStartUs;
     fTxPhase = 1;
@@ -1187,6 +1261,12 @@ txTimerFired(OSObject *owner, IOTimerEventSource *)
     if (that->fTxPhase == 1) {
         if (that->fSyncTmplLen)
             that->sendAWDLFrame(false);
+        that->trySendPendingOOB();
+        if (awDataAllowed() && that->fDataQCount) {
+            unsigned pc = that->fPeerChanValid ? that->peerChannelAt(hostUs()) : that->fTxChan;
+            if (!pc || pc == that->fTxChan)
+                that->flushData(that->fTxChan);
+        }
         that->fTxPhase = 2;
         uint64_t abs;
         nanoseconds_to_absolutetime((that->fTxSlotUs + kTxMIAtUs) * 1000, &abs);
@@ -1194,12 +1274,13 @@ txTimerFired(OSObject *owner, IOTimerEventSource *)
         return;
     }
     that->fTxPhase = 0;
-    if (that->fMITmplLen)
+    that->trySendPendingOOB();
+    if (that->fMITmplLen && that->fAfTxMode != 2)
         that->sendAWDLFrame(true);
     if (awDataAllowed()) {
-        unsigned pc = that->peerChannelAt(hostUs());
+        unsigned pc = that->fPeerChanValid ? that->peerChannelAt(hostUs()) : that->fTxChan;
         if (!pc || pc == that->fTxChan)
-            that->flushData();
+            that->flushData(that->fTxChan);
         else if (that->fDataQCount)
             that->fDataTxNotCommon++;
     }
@@ -1210,10 +1291,10 @@ txTimerFired(OSObject *owner, IOTimerEventSource *)
 // Sync parameters TLV as parsed by IO80211AWDLPeer::parseAwdlSyncParamsTlv
 // (same layout as OWL's awdl_sync_params_tlv), times from our AW timeline.
 size_t AirportItlwmAWDLInterface::
-buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, uint64_t nowUs)
+buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, const uint8_t *dstMac, const uint8_t *tmpl, size_t tmplLen, uint64_t nowUs)
 {
-    const uint8_t *tmpl = mi ? fMITmpl : fSyncTmpl;
-    size_t tmplLen = mi ? fMITmplLen : fSyncTmplLen;
+    if (!tmpl || !tmplLen)
+        return 0;
     // Channel entries are 2 bytes (op class encoding): the receiver's
     // IO80211AWDLPeerManager::isValidChanSeqTlv wants at least 2 * count + 2
     // bytes and drops the whole frame otherwise (iPhone: "bad chan seq tlv",
@@ -1227,9 +1308,19 @@ buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, uint64_t nowUs)
 
     struct ieee80211_frame *wh = (struct ieee80211_frame *)buf;
     wh->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_ACTION;
-    memset(wh->i_addr1, 0xff, 6);
+    if (dstMac)
+        memcpy(wh->i_addr1, dstMac, 6);
+    else
+        memset(wh->i_addr1, 0xff, 6);
     memcpy(wh->i_addr2, &fMac, 6);
-    memcpy(wh->i_addr3, kAWDLBssid, 6);
+    const uint8_t *bssid = kAWDLBssid;
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            if (ic->ic_awdl_bssid_valid)
+                bssid = ic->ic_awdl_bssid;
+        }
+    }
+    memcpy(wh->i_addr3, bssid, 6);
     uint16_t sc = (uint16_t)(fTxSeq++ << 4);
     wh->i_seq[0] = sc & 0xff;
     wh->i_seq[1] = sc >> 8;
@@ -1327,27 +1418,63 @@ buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, uint64_t nowUs)
 void AirportItlwmAWDLInterface::
 sendAWDLFrame(bool mi)
 {
+    const uint8_t *tmpl = mi ? fMITmpl : fSyncTmpl;
+    size_t tmplLen = mi ? fMITmplLen : fSyncTmplLen;
+    if (sendAWDLPayload(mi, nullptr, tmpl, tmplLen, fTxChan)) {
+        if (mi)
+            fTxMI++;
+        else
+            fTxPSF++;
+    }
+}
+
+bool AirportItlwmAWDLInterface::
+sendAWDLPayload(bool mi, const uint8_t *dstMac, const uint8_t *tmpl, size_t tmplLen, uint8_t chan)
+{
     ieee80211com *ic = fController ? fController->fHalService->get80211Controller() : nullptr;
-    if (!ic || !ic->ic_awdl_tx)
-        return;
+    if (!ic || !ic->ic_awdl_tx || !chan)
+        return false;
     static uint8_t frame[2048];             // work loop only
-    size_t len = buildAWDLFrame(frame, sizeof(frame), mi, hostUs());
+    size_t len = buildAWDLFrame(frame, sizeof(frame), mi, dstMac, tmpl, tmplLen, hostUs());
     if (!len) {
         fTxLastErr = 0x100;
         fTxRefused++;
-        return;
+        return false;
     }
-    int err = ic->ic_awdl_tx(ic, fTxChan, frame, len);
+    int err = ic->ic_awdl_tx(ic, chan, frame, len);
     if (err) {
         fTxRefused++;
         fTxLastErr = err;
-        return;
+        return false;
     }
     fTxLastLen = (uint32_t)len;
-    if (mi)
-        fTxMI++;
-    else
-        fTxPSF++;
+    return true;
+}
+
+void AirportItlwmAWDLInterface::
+trySendPendingOOB()
+{
+    if (!fOOBReqPending || !awTxAllowed() || !fController)
+        return;
+    ieee80211com *ic = fController->fHalService->get80211Controller();
+    if (!ic)
+        return;
+    uint8_t chan = 0;
+    if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan) {
+        chan = ic->ic_awdl_listen_chan;
+    } else if (unsigned home = currentHomeChannel()) {
+        bool isMcast = (fOOBReqDst[0] & 1) != 0;
+        unsigned pc = fPeerChanValid ? peerChannelAt(hostUs()) : home;
+        if (isMcast || !pc || pc == home)
+            chan = (uint8_t)home;
+    }
+    if (!chan || !canTxOnChannel(chan))
+        return;
+    if (sendAWDLPayload(true, fOOBReqDst, fOOBReqBuf, fOOBReqLen, chan)) {
+        fOOBReqPending = false;
+        fTxOOBSent++;
+        publishTxState();
+    }
 }
 
 void AirportItlwmAWDLInterface::
@@ -1363,18 +1490,46 @@ enqueueData(mbuf_t m)
     fDataQ[(fDataQHead + fDataQCount) % kDataQueueLen] = m;
     fDataQCount++;
     fDataTxQueued++;
+    // Flush immediately when already on an active dwell or on the home channel
+    // during a slot the peer can hear, avoiding multi-dwell RTT stalls during
+    // NDP, mDNS, and TCP/TLS AirDrop handshakes.
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller()) {
+            if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan) {
+                flushData(ic->ic_awdl_listen_chan);
+            } else if (unsigned home = currentHomeChannel()) {
+                uint8_t eh0 = 0;
+                if (mbuf_pkthdr_len(m) >= 1)
+                    mbuf_copydata(m, 0, 1, &eh0);
+                bool isMcast = (eh0 & 1) != 0;
+                unsigned pc = fPeerChanValid ? peerChannelAt(hostUs()) : home;
+                if (canTxOnChannel((uint8_t)home) && (isMcast || !pc || pc == home))
+                    flushData((uint8_t)home);
+            }
+        }
+    }
 }
 
 // Ethernet -> 802.11 data (no QoS) + LLC/SNAP 00:17:f2 0x0800 + AWDL data
 // header (0x0403 LE, sequence LE, pad, ethertype BE) + payload, as OWL's
 // awdl_init_full_data_frame. Sent on the P2P queue while dwelling on the
-// peer's channel; frames that cannot go out yet stay queued.
+// peer's channel or on the BSS queue when sharing the home channel.
 void AirportItlwmAWDLInterface::
-flushData()
+flushData(uint8_t chan)
 {
     ieee80211com *ic = fController ? fController->fHalService->get80211Controller() : nullptr;
     if (!ic || !ic->ic_awdl_tx)
         return;
+    uint8_t txChan = chan ? chan : fTxChan;
+    if (!txChan) {
+        if (ic->ic_awdl_listen_active && ic->ic_awdl_listen_chan)
+            txChan = ic->ic_awdl_listen_chan;
+        else
+            txChan = (uint8_t)currentHomeChannel();
+    }
+    if (!txChan)
+        return;
+    const uint8_t *bssid = ic->ic_awdl_bssid_valid ? ic->ic_awdl_bssid : kAWDLBssid;
     static uint8_t frame[2048];             // work loop only
     while (fDataQCount) {
         mbuf_t m = fDataQ[fDataQHead];
@@ -1390,7 +1545,7 @@ flushData()
             wh->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
             memcpy(wh->i_addr1, eh, 6);
             memcpy(wh->i_addr2, &fMac, 6);
-            memcpy(wh->i_addr3, kAWDLBssid, 6);
+            memcpy(wh->i_addr3, bssid, 6);
             uint16_t sc = (uint16_t)(fTxSeq++ << 4);
             wh->i_seq[0] = sc & 0xff;
             wh->i_seq[1] = sc >> 8;
@@ -1403,7 +1558,7 @@ flushData()
             a[2] = fDataSeq & 0xff; a[3] = fDataSeq >> 8;
             a[6] = eh[12]; a[7] = eh[13];
             mbuf_copydata(m, 14, plen - 14, a + ad);
-            int err = ic->ic_awdl_tx(ic, fTxChan, frame, hdr + llc + ad + plen - 14);
+            int err = ic->ic_awdl_tx(ic, txChan, frame, hdr + llc + ad + plen - 14);
             if (err == EAGAIN) {
                 fDataTxDeferred++;
                 return;             // keep it for the next dwell
@@ -1450,6 +1605,7 @@ publishTxState()
 {
     setProperty("AWDLTxPSF", fTxPSF, 64);
     setProperty("AWDLTxMI", fTxMI, 64);
+    setProperty("AWDLTxOOBSent", fTxOOBSent, 64);
     setProperty("AWDLTxRefused", fTxRefused, 64);
     setProperty("AWDLTxSkipMode", fTxSkipMode, 64);
     setProperty("AWDLTxLastErr", fTxLastErr, 32);
@@ -1458,6 +1614,7 @@ publishTxState()
     if (!ic)
         return;
     setProperty("AWDLTxFwSent", ic->ic_awdl_tx_sent, 32);
+    setProperty("AWDLTxFwHome", ic->ic_awdl_tx_home, 32);
     setProperty("AWDLTxFwBusy", ic->ic_awdl_tx_busy, 32);
     setProperty("AWDLTxFwErr", ic->ic_awdl_tx_err, 32);
     setProperty("AWDLTxFwOk", ic->ic_awdl_tx_ok, 32);
@@ -1466,6 +1623,7 @@ publishTxState()
     setProperty("AWDLRxUcAction", ic->ic_awdl_rx_uc_action, 32);
     setProperty("AWDLRxUcData", ic->ic_awdl_rx_uc_data, 32);
     setProperty("AWDLRxUcOther", ic->ic_awdl_rx_uc_other, 32);
+    setProperty("AWDLRxMcData", ic->ic_awdl_rx_mc_data, 32);
     setProperty("AWDLRxUcLastChannel", ic->ic_awdl_rx_uc_last_chan, 32);
     setProperty("AWDLFwUcMgmt", ic->ic_awdl_fw_uc_mgmt, 32);
     setProperty("AWDLFwUcData", ic->ic_awdl_fw_uc_data, 32);
@@ -1474,7 +1632,7 @@ publishTxState()
     setProperty("AWDLFwUcLastChannel", ic->ic_awdl_fw_uc_last_chan, 32);
     setProperty("AWDLFwUcLastFc", ic->ic_awdl_fw_uc_last_fc, 32);
     setProperty("AWDLFwForeignData", ic->ic_awdl_fw_foreign_data, 32);
-    setProperty("AWDLPromisc", ic->ic_awdl_want_data ? true : false);
+    setProperty("AWDLPromisc", ic->ic_awdl_promisc ? true : false);
     setProperty("AWDLPromiscChanges", ic->ic_awdl_promisc_changes, 32);
     // Which net80211 drop path feeds the station's input errors.
     char st[256];
@@ -1756,6 +1914,9 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fSyncTmplLen = 0;
     fSyncTmplSets = 0;
     fMITmplLen = 0;
+    fOOBReqLen = 0;
+    fOOBReqPending = false;
+    fTxOOBSent = 0;
     fOOBSets = 0;
     fOOBAutoSets = 0;
     fAfTxMode = 0;
@@ -1764,7 +1925,16 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fTxPhase = 0;
     fTxSlotUs = 0;
     fTxSeq = 0;
-    fMasterChannel = 0;
+    fMasterChannel = 6;
+    fSecondaryMasterChannel = 149;
+    fElectionId = 0;
+    fElectionMetric = 65;
+    memset(&fElectionRssiThresholds, 0, sizeof(fElectionRssiThresholds));
+    memset(&fMinRate, 0, sizeof(fMinRate));
+    memset(&fExtStateMachineParams, 0, sizeof(fExtStateMachineParams));
+    fEncryptionKeySets = 0;
+    fPeerTrafficActive = 0;
+    fPeerTrafficRegs = 0;
     fTxPSF = 0;
     fTxMI = 0;
     fTxRefused = 0;
@@ -1817,7 +1987,7 @@ setMacAddress(ether_addr &mac)
 void AirportItlwmAWDLInterface::
 publishAWDLAddress()
 {
-    if (!awTxAllowed() || !fController)
+    if ((!awTxAllowed() && !awListenAllowed() && !awDataAllowed()) || !fController)
         return;
     ieee80211com *ic = fController->fHalService->get80211Controller();
     if (!ic)
@@ -1826,6 +1996,7 @@ publishAWDLAddress()
         return;
     memcpy(ic->ic_awdl_addr, &fMac, sizeof(fMac));
     ic->ic_awdl_addr_gen++;
+    notifyHalSync();
 }
 
 #pragma mark - getters with cached state
@@ -1979,6 +2150,7 @@ setAWDL_BSSID(apple80211_awdl_bssid *d)
     memcpy(ic->ic_awdl_bssid, d->bssid, 6);
     ic->ic_awdl_bssid_valid = valid;
     ic->ic_awdl_addr_gen++;     // the P2P MAC is re-programmed before the next dwell
+    notifyHalSync();
     return kIOReturnSuccess;
 }
 
@@ -2106,6 +2278,19 @@ recordOOB(const void *req, bool autoReq)
     if (autoReq) {
         memcpy(fMITmpl, p, len);
         fMITmplLen = len;
+    } else if (len > 0) {
+        memcpy(fOOBReqDst, raw + 4, 6);
+        memcpy(fOOBReqBuf, p, len);
+        fOOBReqLen = len;
+        fOOBReqPending = true;
+        if (fController && fController->getWorkLoop() && fController->getWorkLoop()->inGate()) {
+            trySendPendingOOB();
+        } else if (_fCommandGate) {
+            _fCommandGate->runAction([](OSObject *, void *self, void *, void *, void *) -> IOReturn {
+                static_cast<AirportItlwmAWDLInterface *>(self)->trySendPendingOOB();
+                return kIOReturnSuccess;
+            }, this);
+        }
     }
 }
 
@@ -2198,39 +2383,232 @@ getAWDL_PRESENCE_MODE(apple80211_awdl_presence_mode *d)
     return kIOReturnSuccess;
 }
 
+#pragma mark - implemented AWDL IOCTLs + remaining stubs
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_AF_SECONDARY_PAYLOAD_CAPABILITIES(apple80211_awdl_cap *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->cap = APPLE80211_AWDL_CAP_CCA_STATS;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_AF_TX_MODE(apple80211_awdl_af_tx_mode *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->mode = fAfTxMode;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_MASTER_CHANNEL(apple80211_awdl_master_channel *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->master_channel = fMasterChannel ? fMasterChannel : 6;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_SECONDARY_MASTER_CHANNEL(apple80211_awdl_secondary_master_channel *p)
+{
+    fCallCount++;
+    if (p) {
+        fSecondaryMasterChannel = p->secondary_master_channel;
+        setProperty("AWDLSecondaryMasterChannel", fSecondaryMasterChannel, 32);
+    }
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_SECONDARY_MASTER_CHANNEL(apple80211_awdl_secondary_master_channel *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->secondary_master_channel = fSecondaryMasterChannel ? fSecondaryMasterChannel : 149;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_ELECTION_ID(apple80211_awdl_election_id *p)
+{
+    fCallCount++;
+    if (p) {
+        fElectionId = p->election_id;
+        setProperty("AWDLElectionId", fElectionId, 32);
+    }
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_ELECTION_ID(apple80211_awdl_election_id *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->election_id = fElectionId;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_ELECTION_METRIC(apple80211_awdl_election_metric *p)
+{
+    fCallCount++;
+    if (p) {
+        fElectionMetric = p->metric;
+        setProperty("AWDLElectionMetric", fElectionMetric, 32);
+    }
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_ELECTION_METRIC(apple80211_awdl_election_metric *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    p->version = APPLE80211_VERSION;
+    p->metric = fElectionMetric;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_ELECTION_RSSI_THRESHOLDS(apple80211_awdl_election_rssi_thresholds *p)
+{
+    fCallCount++;
+    if (p)
+        fElectionRssiThresholds = *p;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_ELECTION_RSSI_THRESHOLDS(apple80211_awdl_election_rssi_thresholds *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    *p = fElectionRssiThresholds;
+    p->version = APPLE80211_VERSION;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_MIN_RATE(apple80211_awdl_min_rate *p)
+{
+    fCallCount++;
+    if (p)
+        fMinRate = *p;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_MIN_RATE(apple80211_awdl_min_rate *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    *p = fMinRate;
+    p->version = APPLE80211_VERSION;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_EXTENSION_STATE_MACHINE_PARAMETERS(apple80211_awdl_extension_state_machine_parameter *p)
+{
+    fCallCount++;
+    if (p)
+        fExtStateMachineParams = *p;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+getAWDL_EXTENSION_STATE_MACHINE_PARAMETERS(apple80211_awdl_extension_state_machine_parameter *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    *p = fExtStateMachineParams;
+    p->version = APPLE80211_VERSION;
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_ENCRYPTION_KEYS(apple80211_key *p)
+{
+    fCallCount++;
+    if (p) {
+        fEncryptionKeySets++;
+        setProperty("AWDLEncryptionKeySets", fEncryptionKeySets, 32);
+    }
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwmAWDLInterface::
+setAWDL_PEER_TRAFFIC_REGISTRATION(apple80211_awdl_peer_traffic_registration *p)
+{
+    fCallCount++;
+    if (!p)
+        return kIOReturnBadArgument;
+    fPeerTrafficRegs++;
+    if (p->active) {
+        fPeerTrafficActive++;
+    } else if (fPeerTrafficActive > 0) {
+        fPeerTrafficActive--;
+    }
+    setProperty("AWDLPeerTrafficActive", fPeerTrafficActive, 32);
+    setProperty("AWDLPeerTrafficRegs", fPeerTrafficRegs, 64);
+    if (awDataAllowed() && fAWRunning && fController) {
+        auto act = [](OSObject *, void *self, void *, void *, void *) -> IOReturn {
+            auto that = static_cast<AirportItlwmAWDLInterface *>(self);
+            if (that->fController && that->fController->fHalService) {
+                if (ieee80211com *ic = that->fController->fHalService->get80211Controller()) {
+                    bool want = awDataAllowed() && that->fAWRunning;
+                    if ((int)want != ic->ic_awdl_want_data) {
+                        ic->ic_awdl_want_data = want ? 1 : 0;
+                        that->notifyHalSync();
+                    }
+                }
+            }
+            if (!that->fListenAlignedActive)
+                that->scheduleAlignedListen(hostUs());
+            return kIOReturnSuccess;
+        };
+        if (fController->getWorkLoop() && fController->getWorkLoop()->inGate())
+            act(nullptr, this, nullptr, nullptr, nullptr);
+        else if (_fCommandGate)
+            _fCommandGate->runAction(act, this);
+    }
+    return kIOReturnSuccess;
+}
+
 #pragma mark - getters without a known layout
 
-AWDL_GET_STUB(AWDL_EXTENSION_STATE_MACHINE_PARAMETERS, apple80211_awdl_extension_state_machine_parameter)
-AWDL_GET_STUB(AWDL_ELECTION_ID, apple80211_awdl_election_id)
-AWDL_GET_STUB(AWDL_ELECTION_METRIC, apple80211_awdl_election_metric)
-AWDL_GET_STUB(AWDL_MASTER_CHANNEL, apple80211_awdl_master_channel)
-AWDL_GET_STUB(AWDL_ELECTION_RSSI_THRESHOLDS, apple80211_awdl_election_rssi_thresholds)
 AWDL_GET_STUB(AWDL_ELECTION_PARAMS, apple80211_awdl_election_params)
 AWDL_GET_STUB(AWDL_DEVICE_CAPABILITIES, apple80211_awdl_device_capabilities)
-AWDL_GET_STUB(AWDL_SECONDARY_MASTER_CHANNEL, apple80211_awdl_secondary_master_channel)
-AWDL_GET_STUB(AWDL_AF_TX_MODE, apple80211_awdl_af_tx_mode)
-AWDL_GET_STUB(AWDL_MIN_RATE, apple80211_awdl_min_rate)
 AWDL_GET_STUB(AWDL_ENCRYPTION_TYPE, apple80211_encrypt)
 AWDL_GET_STUB(AWDL_TXCAL_PERIOD, apple80211_awdl_txcal_period)
 AWDL_GET_STUB(AWDL_DEV_STATS, apple80211_awdl_dev_stats)
 AWDL_GET_STUB(AWDL_DFSP_CONFIG, apple80211_awdl_dfsp_config)
 AWDL_GET_STUB(AWDL_CCA, apple80211_awdl_cca)
-AWDL_GET_STUB(AWDL_AF_SECONDARY_PAYLOAD_CAPABILITIES, apple80211_awdl_cap)
 AWDL_GET_STUB(LLW_PARAMS, apple80211_llw_params)
 
 #pragma mark - setters accepted but not acted on yet
 
 AWDL_SET_STUB(SSID, apple80211_ssid_data)
 AWDL_SET_STUB(CHANNEL, apple80211_channel_data)
-AWDL_SET_STUB(AWDL_EXTENSION_STATE_MACHINE_PARAMETERS, apple80211_awdl_extension_state_machine_parameter)
-AWDL_SET_STUB(AWDL_ELECTION_ID, apple80211_awdl_election_id)
-AWDL_SET_STUB(AWDL_ELECTION_METRIC, apple80211_awdl_election_metric)
-AWDL_SET_STUB(AWDL_ELECTION_RSSI_THRESHOLDS, apple80211_awdl_election_rssi_thresholds)
 AWDL_SET_STUB(AWDL_ELECTION_PARAMS, apple80211_awdl_election_params)
-AWDL_SET_STUB(AWDL_PEER_TRAFFIC_REGISTRATION, apple80211_awdl_peer_traffic_registration)
-AWDL_SET_STUB(AWDL_SECONDARY_MASTER_CHANNEL, apple80211_awdl_secondary_master_channel)
-AWDL_SET_STUB(AWDL_MIN_RATE, apple80211_awdl_min_rate)
-AWDL_SET_STUB(AWDL_ENCRYPTION_KEYS, apple80211_key)
 AWDL_SET_STUB(AWDL_ENCRYPTION_TYPE, apple80211_encrypt)
 AWDL_SET_STUB(AWDL_TXCAL_PERIOD, apple80211_awdl_txcal_period)
 AWDL_SET_STUB(AWDL_AWDL_ADVERTISERS, awdl_peer_advert_add)

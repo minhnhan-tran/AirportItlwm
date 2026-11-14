@@ -1015,6 +1015,7 @@ getCARD_CAPABILITIES(OSObject *object,
 {
     uint32_t caps = fHalService->get80211Controller()->ic_caps;
     memset(cd, 0, sizeof(struct apple80211_capability_data));
+    cd->version = APPLE80211_VERSION;
 
     if (caps & IEEE80211_C_WEP)
         cd->capabilities[0] |= 1 << APPLE80211_CAP_WEP;
@@ -1062,6 +1063,8 @@ getCARD_CAPABILITIES(OSObject *object,
     // bit 0 is set; AppleBCMWLANCore sets the same bit when its firmware supports AWDL.
     if (fAWDLEnabled) {
         cd->capabilities[4] |= 1;
+        cd->capabilities[2] |= 0x10;
+        cd->capabilities[5] |= 0x01;
         // Capability 29 (byte 3, 0x20): IO80211AWDLPeerManager::configureValidAWDLChannels
         // tests it and otherwise logs "Dual band not supported" and keeps AWDL on
         // 2.4 GHz only (social 6, no 5 GHz channels), so its channel sequence never
@@ -1069,6 +1072,8 @@ getCARD_CAPABILITIES(OSObject *object,
         // from a firmware capability (feature flag 28). Only with -itlawdl.
         if (fHalService->get80211Controller()->ic_modecaps & (1 << IEEE80211_MODE_11A))
             cd->capabilities[3] |= 0x20;
+        if (fHalService->get80211Controller()->ic_flags & IEEE80211_F_VHTON)
+            cd->capabilities[6] |= 0x04;
     }
 #else
     cd->capabilities[2] = 0xFF; // BURST, WME, SHORT_GI_40MHZ, SHORT_GI_20MHZ, WOW, TSN, ?, ?

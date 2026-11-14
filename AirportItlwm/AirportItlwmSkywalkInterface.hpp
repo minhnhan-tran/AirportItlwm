@@ -173,7 +173,7 @@ public:
 #else
     virtual IOReturn getCHANNELS_INFO(apple80211_channels_info *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
 #endif
-    virtual IOReturn getVHT_CAPABILITY(apple80211_vht_capability *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    virtual IOReturn getVHT_CAPABILITY(apple80211_vht_capability *) AIRPORT_SKYWALK_OVERRIDE;
     virtual IOReturn getBGSCAN_CACHE_RESULTS(apple80211_bgscan_cached_network_data_list *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getROAM_PROFILE(apple80211_roam_profile_band_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getCHIP_COUNTER_STATS(apple80211_chip_stats *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }

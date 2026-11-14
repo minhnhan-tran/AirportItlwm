@@ -6487,8 +6487,10 @@ iwx_rx_tx_cmd(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
         if (idx == ring->tail)
             return;
         txd = &ring->data[(idx + ring->ring_count - 1) % ring->ring_count];
-        if (sc->sc_p2p_queue && qid == sc->sc_aux_roc_qid) {
-            /* AWDL frames sent during a P2P listen dwell (iwx_awdl_tx). */
+        if ((txd->flags & IWX_TXDATA_FLAG_AWDL) ||
+            (sc->sc_p2p_queue && qid == sc->sc_aux_roc_qid)) {
+            /* AWDL frames sent during a P2P listen dwell or on home channel. */
+            txd->flags &= ~IWX_TXDATA_FLAG_AWDL;
             int st = le16toh(tx_resp->status.status) & IWX_TX_STATUS_MSK;
             if (st == IWX_TX_STATUS_SUCCESS) {
                 sc->sc_ic.ic_awdl_tx_ok++;
@@ -9172,6 +9174,8 @@ iwx_mac_ctxt_cmd_fill_sta(struct iwx_softc *sc, struct iwx_node *in,
     sta->assoc_id = htole32(ni->ni_associd);
 }
 
+static bool iwx_awdl_promisc_enabled();
+
 int ItlIwx::
 iwx_mac_ctxt_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action,
                  int assoc)
@@ -9223,9 +9227,19 @@ iwx_mac_ctxt_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action,
     if (ni->ni_flags & IEEE80211_NODE_HE) {
         cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_11AX);
     }
-    // AWDL action frames are not addressed to our BSS.
-    if (ic->ic_vendor_action_handler)
-        cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_CONTROL_AND_MGMT);
+    // AWDL action/data frames on the home channel are not addressed to our BSS;
+    // also keep beacons flowing so IO80211AWDLPeerManager::monitorInfraBeacon
+    // never throttles AWDL down to Idle (RptDataPathThres).
+    if (ic->ic_vendor_action_handler) {
+        cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_CONTROL_AND_MGMT |
+                                    IWX_MAC_FILTER_IN_BEACON);
+        bool bssPromisc = iwx_awdl_promisc_enabled() &&
+            ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
+        if (bssPromisc)
+            cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_PROMISC);
+        sc->sc_bss_awdl_promisc = bssPromisc ? 1 : 0;
+        ic->ic_awdl_promisc = (sc->sc_p2p_promisc || sc->sc_bss_awdl_promisc) ? 1 : 0;
+    }
     
     return iwx_send_cmd_pdu(sc, IWX_MAC_CONTEXT_CMD, 0, sizeof(cmd), &cmd);
 }
@@ -9519,23 +9533,66 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
     struct iwx_softc *sc = (struct iwx_softc *)IC2IFP(ic)->if_softc;
     ItlIwx *that = container_of(sc, ItlIwx, com);
     
-    if (!iwx_p2p_listen_enabled() || !sc->sc_p2p_queue || !sc->sc_aux_roc_running ||
-        ic->ic_awdl_listen_chan != chan || ic->ic_bss == NULL ||
+    if (ic->ic_bss == NULL ||
         (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))) {
         ic->ic_awdl_tx_busy++;
         return EAGAIN;
     }
-    int err = that->iwx_awdl_tx_frame(sc, frame, len);
-    if (err)
+    int qid = -1;
+    bool onHome = false;
+    if (iwx_p2p_listen_enabled() && sc->sc_p2p_queue &&
+        sc->sc_aux_roc_running && ic->ic_awdl_listen_chan == chan) {
+        qid = sc->sc_aux_roc_qid;
+    } else if (!sc->sc_aux_roc_running &&
+               ic->ic_state == IEEE80211_S_RUN &&
+               ic->ic_bss->ni_chan &&
+               ic->ic_bss->ni_chan != IEEE80211_CHAN_ANYC &&
+               ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan) == chan &&
+               sc->first_data_qid > 0) {
+        qid = sc->first_data_qid;
+        onHome = true;
+    } else {
+        ic->ic_awdl_tx_busy++;
+        return EAGAIN;
+    }
+    int err = that->iwx_awdl_tx_frame(sc, qid, frame, len);
+    if (err) {
         ic->ic_awdl_tx_err++;
-    else
+    } else {
         ic->ic_awdl_tx_sent++;
+        if (onHome)
+            ic->ic_awdl_tx_home++;
+    }
     return err;
+}
+
+void ItlIwx::
+iwx_awdl_sync_notify(struct ieee80211com *ic)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)IC2IFP(ic)->if_softc;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+    if (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))
+        return;
+    if (ic->ic_state != IEEE80211_S_RUN || !ic->ic_bss)
+        return;
+    bool want = iwx_awdl_promisc_enabled() &&
+        ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
+    if ((int)want == sc->sc_bss_awdl_promisc)
+        return;
+    int generation = sc->sc_generation;
+    if (!that->iwx_nic_lock(sc))
+        return;
+    if (generation == sc->sc_generation &&
+        that->iwx_mac_ctxt_cmd(sc, (struct iwx_node *)ic->ic_bss,
+                               IWX_FW_CTXT_ACTION_MODIFY, 1) == 0) {
+        ic->ic_awdl_promisc_changes++;
+    }
+    that->iwx_nic_unlock(sc);
 }
 
 /* Same descriptor layout as iwx_tx, for a frame that net80211 never saw. */
 int ItlIwx::
-iwx_awdl_tx_frame(struct iwx_softc *sc, const uint8_t *frame, size_t len)
+iwx_awdl_tx_frame(struct iwx_softc *sc, int qid, const uint8_t *frame, size_t len)
 {
     struct ieee80211com *ic = &sc->sc_ic;
     const u_int hdrlen = sizeof(struct ieee80211_frame);
@@ -9543,9 +9600,8 @@ iwx_awdl_tx_frame(struct iwx_softc *sc, const uint8_t *frame, size_t len)
     uint64_t paddr;
     mbuf_t m = NULL;
     
-    if (len <= hdrlen || len > MCLBYTES)
+    if (!frame || len <= hdrlen || len > MCLBYTES)
         return EINVAL;
-    int qid = sc->sc_aux_roc_qid;
     if (qid <= 0 || qid >= (int)nitems(sc->txq))
         return ENXIO;
     struct iwx_tx_ring *ring = &sc->txq[qid];
@@ -9583,7 +9639,10 @@ iwx_awdl_tx_frame(struct iwx_softc *sc, const uint8_t *frame, size_t len)
         rate_n_flags |= IWX_RATE_MCS_LEGACY_OFDM_MSK | 0;  /* legacy index 0 = 6 Mbps */
     else
         rate_n_flags |= IWX_RATE_6M_PLCP;
+    const struct ieee80211_frame *wh = (const struct ieee80211_frame *)frame;
     uint32_t flags = IWX_TX_FLAGS_CMD_RATE | IWX_TX_FLAGS_ENCRYPT_DIS;
+    if (!IEEE80211_IS_MULTICAST(wh->i_addr1))
+        flags |= IWX_TX_FLAGS_HIGH_PRI;
     uint16_t offload_assist = itlTxOffloadHeader(hdrlen);
     uint16_t cmd_size;
     if (sc->sc_device_family >= IWX_DEVICE_FAMILY_AX210) {
@@ -9616,6 +9675,7 @@ iwx_awdl_tx_frame(struct iwx_softc *sc, const uint8_t *frame, size_t len)
     /* iwx_txd_done releases it. */
     data->in = (struct iwx_node *)ieee80211_ref_node(ic->ic_bss);
     data->type = IEEE80211_FC0_TYPE_MGT;
+    data->flags |= IWX_TXDATA_FLAG_AWDL;
     
     uint16_t num_tbs = 2 + nsegs;
     desc->num_tbs = htole16(num_tbs);
@@ -9738,7 +9798,8 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
     if (in == NULL)
         return EBUSY;
     
-    int wantPromisc = iwx_awdl_promisc_enabled() && ic->ic_awdl_want_data;
+    int wantPromisc = (iwx_awdl_promisc_enabled() &&
+        (ic->ic_awdl_want_data || ic->ic_awdl_addr_gen != 0)) ? 1 : 0;
     if (!sc->sc_p2p_mac ||
         (sc->sc_p2p_addr_gen != ic->ic_awdl_addr_gen && ic->ic_awdl_addr_gen) ||
         sc->sc_p2p_promisc != wantPromisc) {
@@ -9761,10 +9822,14 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
         /* Prefer awdl0's address: peers send unicast AWDL frames to it. */
         if (ic->ic_awdl_addr_gen)
             IEEE80211_ADDR_COPY(cmd.node_addr, ic->ic_awdl_addr);
-        if (ic->ic_awdl_bssid_valid)
+        if (ic->ic_awdl_bssid_valid) {
             IEEE80211_ADDR_COPY(cmd.bssid_addr, ic->ic_awdl_bssid);
-        else
-            memset(cmd.bssid_addr, 0xff, sizeof(cmd.bssid_addr));
+        } else {
+            static const uint8_t awdl_bssid[IEEE80211_ADDR_LEN] = {
+                0x00, 0x25, 0x00, 0xff, 0x94, 0x73
+            };
+            IEEE80211_ADDR_COPY(cmd.bssid_addr, awdl_bssid);
+        }
         cmd.filter_flags = htole32(IWX_MAC_FILTER_IN_CONTROL_AND_MGMT |
                                    IWX_MAC_FILTER_ACCEPT_GRP |
                                    IWX_MAC_FILTER_IN_BEACON |
@@ -9772,8 +9837,7 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
         /*
          * -itlawdlpromisc: this P2P_DEVICE MAC only delivers management frames
          * unless IN_PROMISC is set; with it the firmware delivers and
-         * ACKs data to awdl0's address. Only while an AWDL peer is active, so
-         * the rest of the time other stations' data stays in the firmware.
+         * ACKs data to awdl0's address.
          */
         if (wantPromisc)
             cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_PROMISC);
@@ -9784,11 +9848,12 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
             sc->sc_p2p_addr_changes++;
             ic->ic_awdl_p2p_addr_changes = sc->sc_p2p_addr_changes;
         }
-        if (sc->sc_p2p_mac && sc->sc_p2p_promisc != wantPromisc)
+        if (sc->sc_p2p_promisc != wantPromisc)
             ic->ic_awdl_promisc_changes++;
         sc->sc_p2p_mac = 1;
         sc->sc_p2p_addr_gen = ic->ic_awdl_addr_gen;
         sc->sc_p2p_promisc = wantPromisc;
+        ic->ic_awdl_promisc = (wantPromisc || sc->sc_bss_awdl_promisc) ? 1 : 0;
     }
     stage = 5;
     if ((err = iwx_p2p_set_channel(sc, chan)) != 0)
@@ -10026,6 +10091,7 @@ void ItlIwx::
 iwx_aux_roc_sync_counters(struct iwx_softc *sc)
 {
     struct ieee80211com *ic = &sc->sc_ic;
+    ic->ic_awdl_listen_active = sc->sc_aux_roc_running ? 1 : 0;
     ic->ic_awdl_roc_sent = sc->sc_aux_roc_sent;
     ic->ic_awdl_roc_resp_err = sc->sc_aux_roc_resp_err;
     ic->ic_awdl_roc_started = sc->sc_aux_roc_started;
@@ -15155,6 +15221,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     ic->ic_scan_restart_supported = true;
     ic->ic_awdl_listen = iwx_awdl_listen;
     ic->ic_awdl_tx = iwx_awdl_tx;
+    ic->ic_awdl_sync_notify = iwx_awdl_sync_notify;
     ic->ic_set_key = iwx_set_key;
     ic->ic_delete_key = iwx_delete_key;
     

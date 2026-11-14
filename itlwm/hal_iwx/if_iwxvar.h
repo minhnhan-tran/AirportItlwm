@@ -342,6 +342,7 @@ struct iwx_tx_data {
 #define IWX_TXDATA_FLAG_CMD_PENDING    0x02
 #define IWX_TXDATA_FLAG_CMD_WAITING    0x04
 #define IWX_TXDATA_FLAG_LEAVE_DEAUTH   0x08 /* the deauth ic_deauth_tx_pending waits for */
+#define IWX_TXDATA_FLAG_AWDL           0x10 /* AWDL action/data frame */
     uint8_t type;
 };
 
@@ -765,6 +766,7 @@ struct iwx_softc {
 	int sc_p2p_queue;
 	uint32_t sc_p2p_addr_gen;	/* ic_awdl_addr_gen the P2P MAC was programmed with */
 	uint32_t sc_p2p_addr_changes;
+	int sc_bss_awdl_promisc;	/* IN_PROMISC set on the BSS MAC for home-chan AWDL */
 	uint32_t sc_p2p_wait;		/* listen attempts refused while waiting */
 	uint64_t sc_p2p_req_us;
 	uint64_t sc_p2p_start_us;

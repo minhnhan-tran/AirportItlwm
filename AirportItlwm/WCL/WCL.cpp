@@ -945,7 +945,7 @@ void AirportItlwmSkywalkInterface::handleWCLEvent(int code, void *data)
                 ++wclLqmBeacons;
                 // WCL has no legacy LQMData instance at createLQMData().
                 // Send the snapshot consumed by WCL instead of legacy 227/229.
-                if (portAuthorized && (wclLqmBeacons % 8 == 0)) {
+                if (portAuthorized && (wclLqmBeacons == 1 || (wclLqmBeacons % 2 == 0))) {
 #if __IO80211_TARGET == __MAC_15_2
                     apple80211_rssi_data rssi = {};
                     if (getRSSI(&rssi) == kIOReturnSuccess) {

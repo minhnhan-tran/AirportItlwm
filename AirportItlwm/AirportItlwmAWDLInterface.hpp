@@ -258,6 +258,11 @@ private:
     uint64_t fSyncTmplSets;
     uint8_t fMITmpl[1200];          // MI payload TLVs (OOB_AUTO_REQUEST)
     uint16_t fMITmplLen;
+    uint8_t fOOBReqBuf[1200];       // immediate OOB_REQUEST payload TLVs
+    uint16_t fOOBReqLen;
+    uint8_t fOOBReqDst[6];
+    bool fOOBReqPending;
+    uint64_t fTxOOBSent;
     uint64_t fOOBSets;
     uint64_t fOOBAutoSets;
     uint32_t fAfTxMode;
@@ -266,7 +271,12 @@ private:
     static void txTimerFired(OSObject *owner, IOTimerEventSource *sender);
     void scheduleTx(uint8_t chan, uint64_t slotStartUs);
     void sendAWDLFrame(bool mi);
-    size_t buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, uint64_t nowUs);
+    bool sendAWDLPayload(bool mi, const uint8_t *dstMac, const uint8_t *tmpl, size_t tmplLen, uint8_t chan);
+    void trySendPendingOOB();
+    bool canTxOnChannel(uint8_t chan) const;
+    unsigned currentHomeChannel() const;
+    void notifyHalSync();
+    size_t buildAWDLFrame(uint8_t *buf, size_t cap, bool mi, const uint8_t *dstMac, const uint8_t *tmpl, size_t tmplLen, uint64_t nowUs);
     void publishTxState();
     void publishAWDLAddress();
 public:
@@ -280,7 +290,7 @@ public:
     void publishDataState();
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
     void enqueueData(mbuf_t m);
-    void flushData();
+    void flushData(uint8_t chan = 0);
     // 32 overflowed during AirDrop (AWDLDataTxDropFull): data only
     // leaves in the peer's slots, so a burst from the stack has to wait.
     enum { kDataQueueLen = 256 };
@@ -300,6 +310,15 @@ private:
     uint64_t fTxSlotUs;
     uint16_t fTxSeq;                // 802.11 sequence number
     uint32_t fMasterChannel;        // setAWDL_MASTER_CHANNEL
+    uint32_t fSecondaryMasterChannel;
+    uint32_t fElectionId;
+    uint32_t fElectionMetric;
+    apple80211_awdl_election_rssi_thresholds fElectionRssiThresholds;
+    apple80211_awdl_min_rate fMinRate;
+    apple80211_awdl_extension_state_machine_parameter fExtStateMachineParams;
+    uint32_t fEncryptionKeySets;
+    uint32_t fPeerTrafficActive;
+    uint64_t fPeerTrafficRegs;
     uint64_t fTxPSF;
     uint64_t fTxMI;
     uint64_t fTxRefused;            // driver refused (not dwelling, ring full)

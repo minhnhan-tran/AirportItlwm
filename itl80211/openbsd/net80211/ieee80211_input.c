@@ -336,6 +336,25 @@ ieee80211_inputm(struct _ifnet *ifp, mbuf_t m, struct ieee80211_node *ni,
             goto out;
         }
     }
+    if (ic->ic_awdl_addr_gen && type == IEEE80211_FC0_TYPE_DATA &&
+        dir == IEEE80211_FC1_DIR_NODS &&
+        mbuf_len(m) >= sizeof(struct ieee80211_frame) &&
+        IEEE80211_IS_MULTICAST(wh->i_addr1) &&
+        !IEEE80211_ADDR_EQ(wh->i_addr2, ic->ic_awdl_addr)) {
+        static const uint8_t awdl_default_bssid[IEEE80211_ADDR_LEN] = {
+            0x00, 0x25, 0x00, 0xff, 0x94, 0x73
+        };
+        const uint8_t *awdl_bssid = ic->ic_awdl_bssid_valid ?
+            ic->ic_awdl_bssid : awdl_default_bssid;
+        if (IEEE80211_ADDR_EQ(wh->i_addr3, awdl_bssid)) {
+            ic->ic_awdl_rx_mc_data++;
+            if (ic->ic_awdl_data_handler && (*ic->ic_awdl_data_handler)(ic, m, rxi)) {
+                m = NULL;
+                goto out;
+            }
+            goto out;
+        }
+    }
     if (ic->ic_vendor_action_handler && ic->ic_opmode == IEEE80211_M_STA) {
         if (type == IEEE80211_FC0_TYPE_MGT &&
             subtype == IEEE80211_FC0_SUBTYPE_ACTION &&
@@ -357,6 +376,14 @@ ieee80211_inputm(struct _ifnet *ifp, mbuf_t m, struct ieee80211_node *ni,
             if (type == IEEE80211_FC0_TYPE_CTL &&
                 !IEEE80211_ADDR_EQ(wh->i_addr1, ic->ic_myaddr))
                 goto out;
+            if (type == IEEE80211_FC0_TYPE_DATA &&
+                mbuf_len(m) >= sizeof(struct ieee80211_frame) &&
+                ((!IEEE80211_IS_MULTICAST(wh->i_addr1) &&
+                  !IEEE80211_ADDR_EQ(wh->i_addr1, ic->ic_myaddr)) ||
+                 dir == IEEE80211_FC1_DIR_NODS)) {
+                ic->ic_awdl_rx_promisc_drop++;
+                goto out;
+            }
         }
     }
 #endif

@@ -671,6 +671,7 @@ getCARD_CAPABILITIES(OSObject *object,
 {
     uint32_t caps = fHalService->get80211Controller()->ic_caps;
     memset(cd, 0, sizeof(struct apple80211_capability_data));
+    cd->version = APPLE80211_VERSION;
     
     if (caps & IEEE80211_C_WEP)
         cd->capabilities[0] |= 1 << APPLE80211_CAP_WEP;

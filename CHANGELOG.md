@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] — 2026-11-14
+
+### Added
+
+- AWDL / AirDrop (`AirportItlwmAWDLInterface`, `AirportItlwmSkywalkInterface`,
+  `AirportItlwmV2`):
+  - Transmit on-demand OOB / Unicast Master Indication frames from
+    `setAWDL_OOB_REQUEST` (with unicast or broadcast destination MAC) instead of
+    only recording diagnostic headers.
+  - Support AWDL action and `awdl0` data transmission directly on the
+    associated infrastructure home channel (`iwx_awdl_tx` via `first_data_qid`)
+    as well as off-channel P2P listen dwells, with immediate queue flushing on
+    active channels to eliminate multi-dwell handshake stalls.
+  - Implement known-layout AWDL and Skywalk IOCTLs queried by macOS 26
+    `IO80211AWDLPeerManager`: `getVHT_CAPABILITY`,
+    `getAWDL_AF_SECONDARY_PAYLOAD_CAPABILITIES`, `getAWDL_AF_TX_MODE`,
+    `getAWDL_MASTER_CHANNEL`, `SECONDARY_MASTER_CHANNEL`, `ELECTION_ID`,
+    `ELECTION_METRIC`, `ELECTION_RSSI_THRESHOLDS`, `MIN_RATE`,
+    `EXTENSION_STATE_MACHINE_PARAMETERS`, `setAWDL_ENCRYPTION_KEYS`, and
+    `setAWDL_PEER_TRAFFIC_REGISTRATION`.
+
+### Fixed
+
+- `ieee80211_input.c`: deliver multicast AWDL `DIR_NODS` data frames matching
+  the AWDL BSSID (IPv6 NDP Neighbor Solicitations and mDNS `_airdrop._tcp`
+  packets) to `ic_awdl_data_handler` instead of dropping them as station
+  `wrongdir` input errors, and filter foreign promiscuous `TYPE_DATA` frames
+  before station BA reordering.
+- `AirportItlwmAWDLInterface`: remove the inverted `fAfTxMode == 3` gate in
+  `scheduleTx` that muted all PSF, MI, and data transmissions whenever
+  `IO80211AWDLPeerManager` entered active `Scan + Data` mode; apply the
+  `(phy_tx - target_tx)` contention delay correction to AW boundary sync.
+- `ItlIwx` & `WCL`: keep `IWX_MAC_FILTER_IN_BEACON` enabled when AWDL is active
+  and report `LqmBeaconUpdate` every 2 beacons so `monitorInfraBeacon` no
+  longer downgrades AWDL from `Scan + Data` to `Idle` (`RptDataPathThres`);
+  enable `IWX_MAC_FILTER_IN_PROMISC` on the BSS MAC while AWDL data is active
+  and on the P2P MAC as soon as `awdl0` has an address.
+- `AirportItlwmV2` / `AirportSTAIOCTL`: set `APPLE80211_VERSION` and HT/VHT
+  capability bits in `getCARD_CAPABILITIES` so `IO80211AWDLPeerManager` no
+  longer rejects card capabilities.
+
 ## [2.6.2] — 2026-11-09
 
 ### Fixed
