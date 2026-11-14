@@ -767,6 +767,7 @@ struct iwx_softc {
 	uint32_t sc_p2p_addr_gen;	/* ic_awdl_addr_gen the P2P MAC was programmed with */
 	uint32_t sc_p2p_addr_changes;
 	int sc_bss_awdl_promisc;	/* IN_PROMISC set on the BSS MAC for home-chan AWDL */
+	struct task sc_awdl_mac_task;
 	uint32_t sc_p2p_wait;		/* listen attempts refused while waiting */
 	uint64_t sc_p2p_req_us;
 	uint64_t sc_p2p_start_us;

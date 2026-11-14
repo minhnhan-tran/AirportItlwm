@@ -2751,6 +2751,8 @@ iwx_reset_tx_ring(struct iwx_softc *sc, struct iwx_tx_ring *ring)
             sc->sc_cmd_resp_len[i] = 0;
             if (ring->desc)
                 getMainCommandGate()->commandWakeup(&ring->desc[i]);
+        } else {
+            data->flags = 0;
         }
         
         if (data->m != NULL) {
@@ -6332,6 +6334,7 @@ iwx_txd_done(struct iwx_softc *sc, struct iwx_tx_data *txd)
     KASSERT(txd->in, "txd->in");
     ieee80211_release_node(ic, &txd->in->in_ni);
     txd->in = NULL;
+    txd->flags &= ~(IWX_TXDATA_FLAG_LEAVE_DEAUTH | IWX_TXDATA_FLAG_AWDL);
 }
 
 void ItlIwx::
@@ -9579,15 +9582,29 @@ iwx_awdl_sync_notify(struct ieee80211com *ic)
         ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
     if ((int)want == sc->sc_bss_awdl_promisc)
         return;
-    int generation = sc->sc_generation;
-    if (!that->iwx_nic_lock(sc))
+    that->iwx_add_task(sc, systq, &sc->sc_awdl_mac_task);
+}
+
+void ItlIwx::
+iwx_awdl_mac_task(void *arg)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)arg;
+    struct ieee80211com *ic = &sc->sc_ic;
+    struct iwx_node *in = (struct iwx_node *)ic->ic_bss;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+    int s = splnet();
+    if ((sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)) ||
+        ic->ic_state != IEEE80211_S_RUN || !in || !in->in_phyctxt) {
+        splx(s);
         return;
-    if (generation == sc->sc_generation &&
-        that->iwx_mac_ctxt_cmd(sc, (struct iwx_node *)ic->ic_bss,
-                               IWX_FW_CTXT_ACTION_MODIFY, 1) == 0) {
-        ic->ic_awdl_promisc_changes++;
     }
-    that->iwx_nic_unlock(sc);
+    bool want = iwx_awdl_promisc_enabled() &&
+        ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
+    if ((int)want != sc->sc_bss_awdl_promisc) {
+        if (that->iwx_mac_ctxt_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY, 1) == 0)
+            ic->ic_awdl_promisc_changes++;
+    }
+    splx(s);
 }
 
 /* Same descriptor layout as iwx_tx, for a frame that net80211 never saw. */
@@ -12282,6 +12299,7 @@ iwx_stop(struct _ifnet *ifp)
     iwx_del_task(sc, systq, &sc->ba_task);
     iwx_del_task(sc, systq, &sc->mac_ctxt_task);
     iwx_del_task(sc, systq, &sc->chan_ctxt_task);
+    iwx_del_task(sc, systq, &sc->sc_awdl_mac_task);
     KASSERT(sc->task_refs.refs >= 1, "sc->task_refs.refs >= 1");
     //    refcnt_finalize(&sc->task_refs, "iwxstop");
     
@@ -15218,6 +15236,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     task_set(&sc->ba_task, iwx_ba_task, sc, "iwx_ba_task");
     task_set(&sc->mac_ctxt_task, iwx_mac_ctxt_task, sc, "iwx_mac_ctxt_task");
     task_set(&sc->chan_ctxt_task, iwx_chan_ctxt_task, sc, "iwx_chan_ctxt_task");
+    task_set(&sc->sc_awdl_mac_task, iwx_awdl_mac_task, sc, "iwx_awdl_mac_task");
     
     ic->ic_node_alloc = iwx_node_alloc;
     ic->ic_bgscan_start = iwx_bgscan;
