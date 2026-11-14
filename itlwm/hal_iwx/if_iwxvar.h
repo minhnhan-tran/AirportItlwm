@@ -768,7 +768,9 @@ struct iwx_softc {
 	uint32_t sc_p2p_addr_changes;
 	int sc_bss_awdl_promisc;	/* IN_PROMISC set on the BSS MAC for home-chan AWDL */
 	uint16_t sc_awdl_rx_lastseq[IWX_MAX_TID_COUNT + 1];	/* awdl0 unicast RX dedup, per TID (+1: non-QoS) */
+	uint8_t sc_awdl_rx_lastsub[IWX_MAX_TID_COUNT + 1];	/* last A-MSDU subframe idx seen for lastseq */
 	uint8_t sc_awdl_rx_lastseq_valid[IWX_MAX_TID_COUNT + 1];
+	uint8_t sc_awdl_rx_lastta[IEEE80211_ADDR_LEN];	/* transmitter the dedup state belongs to */
 	struct task sc_awdl_mac_task;
 	uint32_t sc_p2p_wait;		/* listen attempts refused while waiting */
 	uint64_t sc_p2p_req_us;

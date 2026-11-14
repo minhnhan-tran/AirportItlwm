@@ -6104,25 +6104,35 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
     if (awdlUc) {
         const struct ieee80211_frame *dh =
             (const struct ieee80211_frame *)((const uint8_t *)pktdata + desc_size);
-        if ((dh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA) {
+        if ((dh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA &&
+            !(ieee80211_has_qos(dh) && (dh->i_fc[0] & IEEE80211_FC0_SUBTYPE_NODATA))) {
             unsigned tid = IWX_MAX_TID_COUNT;
-            size_t mlen = le16toh(desc->mpdu_len);
-            if ((dh->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS) &&
-                mlen >= sizeof(struct ieee80211_qosframe))
-                tid = ((const struct ieee80211_qosframe *)dh)->i_qos[0] &
-                    IEEE80211_QOS_TID;
-            if (tid > IWX_MAX_TID_COUNT)
-                tid = IWX_MAX_TID_COUNT;
+            if (ieee80211_has_qos(dh) &&
+                le16toh(desc->mpdu_len) >= sizeof(struct ieee80211_qosframe)) {
+                tid = ieee80211_get_qos(dh) & IEEE80211_QOS_TID;
+                if (tid > IWX_MAX_TID_COUNT)
+                    tid = IWX_MAX_TID_COUNT;
+            }
+            /* State is per transmitter: a different peer restarts it. */
+            if (!IEEE80211_ADDR_EQ(dh->i_addr2, sc->sc_awdl_rx_lastta)) {
+                memset(sc->sc_awdl_rx_lastseq_valid, 0,
+                    sizeof(sc->sc_awdl_rx_lastseq_valid));
+                IEEE80211_ADDR_COPY(sc->sc_awdl_rx_lastta, dh->i_addr2);
+            }
+            /* Subframe 0 for a plain MPDU; later A-MSDU subframes share the seq. */
+            uint8_t sub = desc->amsdu_info & IWX_RX_MPDU_AMSDU_SUBFRAME_IDX_MASK;
             uint16_t seq = le16toh(*(const uint16_t *)dh->i_seq) >>
                 IEEE80211_SEQ_SEQ_SHIFT;
             if ((dh->i_fc[1] & IEEE80211_FC1_RETRY) &&
                 sc->sc_awdl_rx_lastseq_valid[tid] &&
-                sc->sc_awdl_rx_lastseq[tid] == seq) {
+                sc->sc_awdl_rx_lastseq[tid] == seq &&
+                sc->sc_awdl_rx_lastsub[tid] >= sub) {
                 ic->ic_awdl_fw_uc_drop_dup++;
                 mbuf_freem(m);
                 return; /* link-layer retransmission */
             }
             sc->sc_awdl_rx_lastseq[tid] = seq;
+            sc->sc_awdl_rx_lastsub[tid] = sub;
             sc->sc_awdl_rx_lastseq_valid[tid] = 1;
         }
     }

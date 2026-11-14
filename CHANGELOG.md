@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The peer repeats frames whenever it misses our hardware ACK, and each copy used
   to reach TCP as a duplicate segment, collapsing the phone's congestion window
   and stalling AirDrop mid-transfer. Exposed as `AWDLFwUcDropDup`.
+  The filter is per transmitter and per TID, tracks the A-MSDU subframe index (so
+  the later subframes of a retried aggregate are kept), and ignores QoS-Null.
 
 ## [2.7.4] — 2026-11-14
 
