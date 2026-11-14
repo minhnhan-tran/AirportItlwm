@@ -1733,6 +1733,7 @@ publishTxState()
     setProperty("AWDLFwUcData", ic->ic_awdl_fw_uc_data, 32);
     setProperty("AWDLFwUcBadCrc", ic->ic_awdl_fw_uc_badcrc, 32);
     setProperty("AWDLFwUcDropDecrypt", ic->ic_awdl_fw_uc_drop_decrypt, 32);
+    setProperty("AWDLFwUcDropDup", ic->ic_awdl_fw_uc_drop_dup, 32);
     setProperty("AWDLFwUcLastChannel", ic->ic_awdl_fw_uc_last_chan, 32);
     setProperty("AWDLFwUcLastFc", ic->ic_awdl_fw_uc_last_fc, 32);
     setProperty("AWDLFwForeignData", ic->ic_awdl_fw_foreign_data, 32);

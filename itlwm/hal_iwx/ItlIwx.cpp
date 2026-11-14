@@ -6094,6 +6094,39 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
         return; /* drop */
     }
     
+    /*
+     * awdl0 unicast data: the peer retransmits at the link layer whenever it
+     * misses our hardware ACK (e.g. we were on another channel). Every copy
+     * reaches TCP as a duplicate segment and collapses the phone's window, so
+     * drop a frame only when it carries the retry bit AND repeats the previous
+     * sequence number of the same TID. A non-retry frame is never dropped.
+     */
+    if (awdlUc) {
+        const struct ieee80211_frame *dh =
+            (const struct ieee80211_frame *)((const uint8_t *)pktdata + desc_size);
+        if ((dh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA) {
+            unsigned tid = IWX_MAX_TID_COUNT;
+            size_t mlen = le16toh(desc->mpdu_len);
+            if ((dh->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS) &&
+                mlen >= sizeof(struct ieee80211_qosframe))
+                tid = ((const struct ieee80211_qosframe *)dh)->i_qos[0] &
+                    IEEE80211_QOS_TID;
+            if (tid > IWX_MAX_TID_COUNT)
+                tid = IWX_MAX_TID_COUNT;
+            uint16_t seq = le16toh(*(const uint16_t *)dh->i_seq) >>
+                IEEE80211_SEQ_SEQ_SHIFT;
+            if ((dh->i_fc[1] & IEEE80211_FC1_RETRY) &&
+                sc->sc_awdl_rx_lastseq_valid[tid] &&
+                sc->sc_awdl_rx_lastseq[tid] == seq) {
+                ic->ic_awdl_fw_uc_drop_dup++;
+                mbuf_freem(m);
+                return; /* link-layer retransmission */
+            }
+            sc->sc_awdl_rx_lastseq[tid] = seq;
+            sc->sc_awdl_rx_lastseq_valid[tid] = 1;
+        }
+    }
+    
     len = le16toh(desc->mpdu_len);
     if (ic->ic_opmode == IEEE80211_M_MONITOR) {
         /* Allow control frames in monitor mode. */
