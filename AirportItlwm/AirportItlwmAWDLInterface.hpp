@@ -291,6 +291,18 @@ public:
     uint64_t fDataRxNoBuf;
     uint32_t fDataRxLastLen;
     uint16_t fDataRxLastType;
+    // Why frames land in fDataRxBad, plus what the last one looked like (2.7.8).
+    uint64_t fDataRxBadPullup;
+    uint64_t fDataRxBadShort;     // data frame with no room for LLC+AWDL headers
+    uint64_t fDataRxBadSnap;      // not the Apple AWDL SNAP header
+    uint64_t fDataRxNull;         // QoS-null / null data: no payload, expected
+    uint32_t fDataRxBadLastLen;
+    uint16_t fDataRxBadLastFc;    // fc[0] | fc[1] << 8
+    uint16_t fDataRxBadLastHdr;   // 802.11 header length assumed
+    uint64_t fDataRxBadLastHead;  // first 8 bytes after that header, big-endian
+    // Good frame length buckets: <128, <512, <1024, >=1024 (after SNAP strip).
+    uint64_t fDataRxLen[4];
+    uint32_t fDataRxMaxLen;
     void publishDataState();
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
     void enqueueData(mbuf_t m);

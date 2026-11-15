@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.8] — 2026-11-15
+
+### Added
+
+- awdl0 receive diagnostics (no behaviour change) to find why phone→Mac bulk data
+  such as a Universal Clipboard image stalls: `AWDLDataRxBad` is now split into
+  `AWDLDataRxBadPullup`, `AWDLDataRxBadShort` and `AWDLDataRxBadSnap`, with the last
+  bad frame's length, frame-control, assumed header length and first 8 payload bytes
+  (`AWDLDataRxBadLast*`). Good frames are bucketed by size (`AWDLDataRxLenLt128`,
+  `Lt512`, `Lt1024`, `Ge1024`) with a max (`AWDLDataRxMaxLen`).
+
+### Changed
+
+- Null / QoS-null data frames (no payload) are counted in the new `AWDLDataRxNull`
+  instead of `AWDLDataRxBad`, so "bad" now means a frame that carried data we could
+  not parse. They were and still are dropped.
+
 ## [2.7.7] — 2026-11-15
 
 ### Changed

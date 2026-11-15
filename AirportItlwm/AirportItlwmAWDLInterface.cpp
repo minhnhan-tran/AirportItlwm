@@ -80,6 +80,7 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     }
     if (mbuf_pullup(&m, mbuf_pkthdr_len(m) < 64 ? mbuf_pkthdr_len(m) : 64) != 0 || !m) {
         awdl->fDataRxBad++;
+        awdl->fDataRxBadPullup++;
         return 1;   // mbuf_pullup freed it
     }
     const uint8_t *p = (const uint8_t *)mbuf_data(m);
@@ -98,9 +99,30 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     }
     static const uint8_t kSnap[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x17, 0xf2 };
     const size_t llc = 8, awdlHdr = 8;
-    if (len < hdr + llc + awdlHdr || memcmp(p + hdr, kSnap, sizeof(kSnap)) ||
+    bool tooShort = len < hdr + llc + awdlHdr;
+    if (tooShort || memcmp(p + hdr, kSnap, sizeof(kSnap)) ||
         p[hdr + 6] != 0x08 || p[hdr + 7] != 0x00) {
+        // Null / QoS-null frames carry no payload; keep them out of "bad".
+        if (tooShort && (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA &&
+            (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_NODATA)) {
+            awdl->fDataRxNull++;
+            mbuf_freem(m);
+            return 1;
+        }
         awdl->fDataRxBad++;
+        if (tooShort)
+            awdl->fDataRxBadShort++;
+        else
+            awdl->fDataRxBadSnap++;
+        awdl->fDataRxBadLastLen = (uint32_t)mbuf_pkthdr_len(m);
+        awdl->fDataRxBadLastFc = (uint16_t)(wh->i_fc[0] | (wh->i_fc[1] << 8));
+        awdl->fDataRxBadLastHdr = (uint16_t)hdr;
+        uint64_t head = 0;
+        for (size_t i = 0; i < 8; i++)
+            head = (head << 8) | (hdr + i < len ? p[hdr + i] : 0);
+        awdl->fDataRxBadLastHead = head;
+        if ((awdl->fDataRxBad & 0xf) == 1)
+            awdl->publishDataState();
         mbuf_freem(m);
         return 1;
     }
@@ -125,6 +147,12 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     mbuf_pkthdr_setrcvif(m, getIfnet());
     awdl->fDataRx++;
     awdl->fDataRxLastLen = (uint32_t)mbuf_pkthdr_len(m);
+    {
+        uint32_t l = awdl->fDataRxLastLen;
+        awdl->fDataRxLen[l < 128 ? 0 : l < 512 ? 1 : l < 1024 ? 2 : 3]++;
+        if (l > awdl->fDataRxMaxLen)
+            awdl->fDataRxMaxLen = l;
+    }
     awdl->fDataRxLastType = (uint16_t)((ethType[0] << 8) | ethType[1]);
     if (awdl->fDataRx <= 4 || (awdl->fDataRx & 0x1f) == 0)
         awdl->publishDataState();
@@ -1694,6 +1722,19 @@ publishDataState()
     setProperty("AWDLDataRxNoBuf", fDataRxNoBuf, 64);
     setProperty("AWDLDataRxLastLen", fDataRxLastLen, 32);
     setProperty("AWDLDataRxLastType", fDataRxLastType, 32);
+    setProperty("AWDLDataRxBadPullup", fDataRxBadPullup, 64);
+    setProperty("AWDLDataRxBadShort", fDataRxBadShort, 64);
+    setProperty("AWDLDataRxBadSnap", fDataRxBadSnap, 64);
+    setProperty("AWDLDataRxNull", fDataRxNull, 64);
+    setProperty("AWDLDataRxBadLastLen", fDataRxBadLastLen, 32);
+    setProperty("AWDLDataRxBadLastFc", fDataRxBadLastFc, 32);
+    setProperty("AWDLDataRxBadLastHdr", fDataRxBadLastHdr, 32);
+    setProperty("AWDLDataRxBadLastHead", fDataRxBadLastHead, 64);
+    setProperty("AWDLDataRxLenLt128", fDataRxLen[0], 64);
+    setProperty("AWDLDataRxLenLt512", fDataRxLen[1], 64);
+    setProperty("AWDLDataRxLenLt1024", fDataRxLen[2], 64);
+    setProperty("AWDLDataRxLenGe1024", fDataRxLen[3], 64);
+    setProperty("AWDLDataRxMaxLen", fDataRxMaxLen, 32);
     setProperty("AWDLDataTx", fDataTx, 64);
     setProperty("AWDLDataTxQueued", fDataTxQueued, 64);
     setProperty("AWDLDataTxDropFull", fDataTxDropFull, 64);
@@ -2055,6 +2096,12 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fDataRxNoBuf = 0;
     fDataRxLastLen = 0;
     fDataRxLastType = 0;
+    fDataRxBadPullup = fDataRxBadShort = fDataRxBadSnap = fDataRxNull = 0;
+    fDataRxBadLastLen = 0;
+    fDataRxBadLastFc = fDataRxBadLastHdr = 0;
+    fDataRxBadLastHead = 0;
+    memset(fDataRxLen, 0, sizeof(fDataRxLen));
+    fDataRxMaxLen = 0;
     memset(fDataQ, 0, sizeof(fDataQ));
     fDataQHead = 0;
     fDataQCount = 0;
