@@ -25,6 +25,10 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   need 2.7.11 or later: the phone sends bulk data as A-MSDU frames that older
   builds dropped, so the paste stalled on "Connecting...". Mac-to-phone worked
   earlier. Results may vary with the adapter and peer.
+- **Handoff works** (same test setup as Universal Clipboard). Handoff discovery uses
+  Bluetooth, so it also depends on a working Intel Bluetooth stack
+  (BlueToolFixup with `-btlfxadvsets` on macOS 26.7.3). Both devices need the same
+  Apple ID, Wi-Fi and Bluetooth on, and Handoff enabled on each.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".

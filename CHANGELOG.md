@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.13] — 2026-11-15
+
+### Changed
+
+- README: documented that Handoff works on the tested setup (MacPro7,1 SMBIOS, Intel
+  AX210, macOS Tahoe 26.7.3, iPhone 16 Pro). Documentation only; no driver changes.
+
 ## [2.7.12] — 2026-11-15
 
 ### Changed
