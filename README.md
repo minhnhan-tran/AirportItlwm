@@ -46,6 +46,15 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   `-itlawdltx`, `-itlawdlaw`, `-itlawdldata` (listen, transmit, availability
   windows, data), `-itlawdlnopeerlisten` and `itlawdllistench=<n>` (diagnostics).
   Once awdl0 has an address, the shared receive path drops frames from other BSSes.
+- **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
+  (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
+  shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
+  macOS requests a device certificate (DCRT) from `mobileactivationd`, which needs
+  an Apple coprocessor (T2 / bridgeOS). A Hackintosh has none: the log shows
+  `IODeviceTree:/efi/platform` without `apple-coprocessor-version` and
+  `bridgeOS available: false`, so the request fails locally (`MobileActivation`
+  Code=-3) before any Apple server is contacted. This is not a Wi-Fi or Bluetooth
+  driver fault, and no workaround is known.
 - Device support follows the upstream hardware table; Tahoe compatibility still
   requires validation on each adapter.
 

@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.7] — 2026-11-15
+
+### Changed
+
+- README: documented that iPhone Mirroring works only up to the passcode prompt on
+  the iPhone and cannot be ported, because the Mac has no T2 / bridgeOS to issue the
+  device certificate (DCRT) it requires. Documentation only; no driver changes.
+
 ## [2.7.6] — 2026-11-14
 
 ### Changed
