@@ -121,6 +121,15 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         for (size_t i = 0; i < 8; i++)
             head = (head << 8) | (hdr + i < len ? p[hdr + i] : 0);
         awdl->fDataRxBadLastHead = head;
+        awdl->fDataRxBadLastQos = ieee80211_has_qos(wh) ? (uint16_t)(p[sizeof(*wh)] | (p[sizeof(*wh) + 1] << 8)) : 0;
+        for (size_t w = 0; w < 4; w++) {
+            uint64_t r = 0;
+            for (size_t i = 0; i < 8; i++)
+                r = (r << 8) | (w * 8 + i < len ? p[w * 8 + i] : 0);
+            awdl->fDataRxBadLastRaw[w] = r;
+        }
+        if (mbuf_pkthdr_len(m) > 2304)
+            awdl->fDataRxBadBig++;
         if ((awdl->fDataRxBad & 0xf) == 1)
             awdl->publishDataState();
         mbuf_freem(m);
@@ -1730,6 +1739,12 @@ publishDataState()
     setProperty("AWDLDataRxBadLastFc", fDataRxBadLastFc, 32);
     setProperty("AWDLDataRxBadLastHdr", fDataRxBadLastHdr, 32);
     setProperty("AWDLDataRxBadLastHead", fDataRxBadLastHead, 64);
+    setProperty("AWDLDataRxBadLastQos", fDataRxBadLastQos, 32);
+    setProperty("AWDLDataRxBadLastRaw0", fDataRxBadLastRaw[0], 64);
+    setProperty("AWDLDataRxBadLastRaw1", fDataRxBadLastRaw[1], 64);
+    setProperty("AWDLDataRxBadLastRaw2", fDataRxBadLastRaw[2], 64);
+    setProperty("AWDLDataRxBadLastRaw3", fDataRxBadLastRaw[3], 64);
+    setProperty("AWDLDataRxBadOver2304", fDataRxBadBig, 64);
     setProperty("AWDLDataRxLenLt128", fDataRxLen[0], 64);
     setProperty("AWDLDataRxLenLt512", fDataRxLen[1], 64);
     setProperty("AWDLDataRxLenLt1024", fDataRxLen[2], 64);
@@ -2100,6 +2115,9 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fDataRxBadLastLen = 0;
     fDataRxBadLastFc = fDataRxBadLastHdr = 0;
     fDataRxBadLastHead = 0;
+    fDataRxBadLastQos = 0;
+    memset(fDataRxBadLastRaw, 0, sizeof(fDataRxBadLastRaw));
+    fDataRxBadBig = 0;
     memset(fDataRxLen, 0, sizeof(fDataRxLen));
     fDataRxMaxLen = 0;
     memset(fDataQ, 0, sizeof(fDataQ));

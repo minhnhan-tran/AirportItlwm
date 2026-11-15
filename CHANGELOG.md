@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.9] — 2026-11-15
+
+### Added
+
+- awdl0 receive diagnostics only (no behaviour change): the last bad frame now also
+  records its QoS control (`AWDLDataRxBadLastQos`) and its first 32 bytes from the
+  802.11 header (`AWDLDataRxBadLastRaw0..3`), and `AWDLDataRxBadOver2304` counts bad
+  frames longer than the 2304-byte MSDU limit. In 2.7.8 the bad frames during a failed
+  Universal Clipboard image paste were all 2.4-3 KB QoS data frames with a non-AWDL
+  payload. They are not A-MSDUs: the A-MSDU bit is tested before the SNAP check and
+  `AWDLDataRxAmsdu` stayed 0, so these frames had it clear. This records what they
+  really are before any receive handling is changed.
+
 ## [2.7.8] — 2026-11-15
 
 ### Added
