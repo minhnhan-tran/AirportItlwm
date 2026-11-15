@@ -72,6 +72,36 @@ performCommand(IONetworkController *controller, unsigned long cmd, void *arg0, v
 static bool awDataAllowed();
 static uint64_t hostUs();
 
+#ifndef ETHER_ALIGN
+#define ETHER_ALIGN 2
+#endif
+
+// The peer aggregates bulk data into A-MSDUs: after the 802.11 header come
+// subframes of DA(6) SA(6) len(2, BE) then LLC/SNAP + AWDL header + packet, each
+// padded to 4 bytes except the last. The Intel receive path hands these over whole
+// with the QoS A-MSDU bit already cleared, so they only show up as a SNAP mismatch.
+// Validate every subframe first so a frame is either split completely or left alone.
+static bool awdlAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
+{
+    static const uint8_t kSnap[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x17, 0xf2 };
+    size_t total = mbuf_pkthdr_len(m), off = hdr;
+    unsigned n = 0;
+    while (off + 30 <= total) {
+        uint8_t sh[30];
+        if (mbuf_copydata(m, off, sizeof(sh), sh))
+            return false;
+        size_t sublen = ((size_t)sh[12] << 8) | sh[13];
+        if (sublen < 16 || sublen > 2304 || off + 14 + sublen > total)
+            return false;
+        if (memcmp(sh + 14, kSnap, sizeof(kSnap)) || sh[20] != 0x08 || sh[21] != 0x00)
+            return false;
+        n++;
+        off += (14 + sublen + 3) & ~(size_t)3;
+    }
+    *nsub = n;
+    return n > 0 && (off >= total || total - off < 14);
+}
+
 int AirportItlwmAWDLEthernetInterface::
 inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
 {
@@ -102,6 +132,61 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     bool tooShort = len < hdr + llc + awdlHdr;
     if (tooShort || memcmp(p + hdr, kSnap, sizeof(kSnap)) ||
         p[hdr + 6] != 0x08 || p[hdr + 7] != 0x00) {
+        unsigned nsub = 0;
+        if (!tooShort && awdlAmsduValid(m, hdr, &nsub)) {
+            if (memcmp(wh->i_addr2, fMac.octet, 6) == 0) {
+                mbuf_freem(m);
+                return 1;
+            }
+            uint8_t dst[6], src[6];
+            memcpy(dst, wh->i_addr1, 6);
+            memcpy(src, wh->i_addr2, 6);
+            size_t off = hdr;
+            awdl->fDataRxSplitFrames++;
+            for (unsigned i = 0; i < nsub; i++) {
+                uint8_t sh[30];
+                if (mbuf_copydata(m, off, sizeof(sh), sh))
+                    break;
+                size_t sublen = ((size_t)sh[12] << 8) | sh[13];
+                size_t next = (14 + sublen + 3) & ~(size_t)3;
+                size_t ethLen = sublen - 2;   // 14-byte Ethernet header + packet
+                if (memcmp(sh, dst, 6) || memcmp(sh + 6, src, 6))
+                    awdl->fDataRxSplitAddrDiff++;
+                mbuf_t out = NULL;
+                unsigned chunks = 1;
+                if (mbuf_allocpacket(MBUF_DONTWAIT, ethLen + ETHER_ALIGN, &chunks, &out) || !out) {
+                    awdl->fDataRxNoBuf++;
+                    off += next;
+                    continue;
+                }
+                uint8_t *d = (uint8_t *)mbuf_data(out) + ETHER_ALIGN;
+                memcpy(d, dst, 6);
+                memcpy(d + 6, src, 6);
+                d[12] = sh[28];
+                d[13] = sh[29];
+                if (sublen > 16 && mbuf_copydata(m, off + 30, sublen - 16, d + 14)) {
+                    mbuf_freem(out);
+                    break;
+                }
+                mbuf_setdata(out, d, ethLen);
+                mbuf_pkthdr_setlen(out, ethLen);
+                mbuf_pkthdr_setrcvif(out, getIfnet());
+                awdl->fDataRx++;
+                awdl->fDataRxSplitSub++;
+                awdl->fDataRxLastLen = (uint32_t)ethLen;
+                awdl->fDataRxLen[ethLen < 128 ? 0 : ethLen < 512 ? 1 : ethLen < 1024 ? 2 : 3]++;
+                if (ethLen > awdl->fDataRxMaxLen)
+                    awdl->fDataRxMaxLen = (uint32_t)ethLen;
+                awdl->fDataRxLastType = (uint16_t)((sh[28] << 8) | sh[29]);
+                if (awdl->fDataRx <= 4 || (awdl->fDataRx & 0x1f) == 0)
+                    awdl->publishDataState();
+                ifnet_stat_increment_in(getIfnet(), 1, (u_int32_t)ethLen, 0);
+                inputPacket(out, (UInt32)ethLen, 0, out);
+                off += next;
+            }
+            mbuf_freem(m);
+            return 1;
+        }
         // Null / QoS-null frames carry no payload; keep them out of "bad".
         if (tooShort && (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA &&
             (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_NODATA)) {
@@ -1745,6 +1830,9 @@ publishDataState()
     setProperty("AWDLDataRxBadLastPay2", fDataRxBadLastRaw[2], 64);
     setProperty("AWDLDataRxBadLastPay3", fDataRxBadLastRaw[3], 64);
     setProperty("AWDLDataRxBadOver2304", fDataRxBadBig, 64);
+    setProperty("AWDLDataRxSplitFrames", fDataRxSplitFrames, 64);
+    setProperty("AWDLDataRxSplitSub", fDataRxSplitSub, 64);
+    setProperty("AWDLDataRxSplitAddrDiff", fDataRxSplitAddrDiff, 64);
     setProperty("AWDLDataRxLenLt128", fDataRxLen[0], 64);
     setProperty("AWDLDataRxLenLt512", fDataRxLen[1], 64);
     setProperty("AWDLDataRxLenLt1024", fDataRxLen[2], 64);
@@ -2118,6 +2206,7 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fDataRxBadLastQos = 0;
     memset(fDataRxBadLastRaw, 0, sizeof(fDataRxBadLastRaw));
     fDataRxBadBig = 0;
+    fDataRxSplitFrames = fDataRxSplitSub = fDataRxSplitAddrDiff = 0;
     memset(fDataRxLen, 0, sizeof(fDataRxLen));
     fDataRxMaxLen = 0;
     memset(fDataQ, 0, sizeof(fDataQ));

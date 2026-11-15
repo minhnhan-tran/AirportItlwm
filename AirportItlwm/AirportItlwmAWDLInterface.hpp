@@ -303,6 +303,11 @@ public:
     uint16_t fDataRxBadLastQos;   // QoS control of the last bad frame (0 if not QoS)
     uint64_t fDataRxBadLastRaw[4]; // first 32 payload bytes after the 802.11 header, big-endian
     uint64_t fDataRxBadBig;       // bad frames longer than the 2304-byte MSDU limit
+    // A-MSDU frames the peer sends for bulk data (2.7.11): frames split, subframes
+    // delivered, and subframes whose DA/SA differ from the 802.11 addr1/addr2.
+    uint64_t fDataRxSplitFrames;
+    uint64_t fDataRxSplitSub;
+    uint64_t fDataRxSplitAddrDiff;
     // Good frame length buckets: <128, <512, <1024, >=1024 (after SNAP strip).
     uint64_t fDataRxLen[4];
     uint32_t fDataRxMaxLen;

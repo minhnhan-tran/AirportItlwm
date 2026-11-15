@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.11] — 2026-11-15
+
+### Fixed
+
+- awdl0 receive: split A-MSDU frames. The phone aggregates bulk data (a Universal
+  Clipboard image, AirDrop) into 2-3 KB frames whose payload starts with A-MSDU
+  subframes `DA(6) SA(6) len(2) | LLC/SNAP 00:17:f2 | AWDL header | packet`. The Intel
+  path clears the QoS A-MSDU bit itself, so `inputAWDLData` saw a SNAP mismatch, dropped
+  the whole frame and the phone kept retransmitting, which stalled phone->Mac pastes of
+  images while text (single small frames) worked. A frame that fails the normal SNAP
+  check is now parsed as a subframe list; only if every subframe is well formed (length
+  fits, SNAP + type 0x0800 present, 4-byte padding, no trailing bytes) is it split and
+  each subframe delivered as its own Ethernet frame. Anything else is still counted bad
+  and dropped, and frames with a valid SNAP take the unchanged path.
+- New counters: `AWDLDataRxSplitFrames`, `AWDLDataRxSplitSub`, and
+  `AWDLDataRxSplitAddrDiff` (subframes whose DA/SA differ from the 802.11 addr1/addr2,
+  which are what is used for the Ethernet header, as before).
+
 ## [2.7.10] — 2026-11-15
 
 ### Fixed
