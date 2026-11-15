@@ -3,34 +3,7 @@
 
 **An Intel Wi-Fi Adapter Kernel Extension for macOS, based on the OpenBSD Project.**
 
-## Documentation
-
-We highly recommend exploring our documentation before using this Kernel Extension:
-
-- [Intro](https://OpenIntelWireless.github.io/itlwm)
-- [Compatibility](https://openintelwireless.github.io/itlwm/Compat)
-- [FAQ](https://openintelwireless.github.io/itlwm/FAQ)
-
-## AirportItlwm on macOS Sequoia
-
-The `AirportItlwm-Sequoia` target supports macOS Sequoia 15.2 and later on x86_64
-through the native Wi-Fi interface. It has been tested on macOS 15.8 (24H23).
-Sequoia and Tahoe use separate ABI headers and build products.
-
-With the same MacKernelSDK checkout described below:
-
-```sh
-xcodebuild -project itlwm.xcodeproj -scheme AirportItlwm-Sequoia \
-  -configuration Release ARCHS=x86_64 CODE_SIGNING_ALLOWED=NO build
-```
-
-Use this kext only on Darwin 24.2.0–24.99.99. Keep the Tahoe kext restricted to
-Darwin 25.x when both systems share an OpenCore configuration. HE remains opt-in
-with `itlwm_he=1`, and the Tahoe feature limitations below also apply to Sequoia.
-
 ## AirportItlwm on macOS 26
-
-
 
 
 This fork supports macOS Tahoe 26.x (x86_64) through the native Wi-Fi interface,
@@ -40,12 +13,18 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   Add `itlwm_he=1` to enable it on supported adapters.
 - WPA2-Personal and WPA2/WPA3 transition networks with optional PMF are supported.
   WPA3-only, mandatory PMF, and MLO are not supported.
-- Experimental (Tahoe target only): AWDL / AirDrop (`awdl0`), off by default and
-  untested on hardware. Boot-args, cumulative: `-itlawdl` (base), `-itlawdlp2p`
+- Experimental (Tahoe target only): AWDL (`awdl0`, used by AirDrop and Universal
+  Clipboard), off by default and only lightly tested on hardware. Boot-args, cumulative: `-itlawdl` (base), `-itlawdlp2p`
   and `-itlawdlpromisc` (iwx P2P listen / receive filter, AX2xx), `-itlawdllisten`,
   `-itlawdltx`, `-itlawdlaw`, `-itlawdldata` (listen, transmit, availability
   windows, data), `-itlawdlnopeerlisten` and `itlawdllistench=<n>` (diagnostics).
   Once awdl0 has an address, the shared receive path drops frames from other BSSes.
+- **Universal Clipboard works** (tested on a MacPro7,1 SMBIOS with an Intel AX210,
+  macOS Tahoe 26.7.3 and an iPhone 16 Pro, AirportItlwm 2.7.11 with the AWDL
+  boot-args above). Text and images copy in both directions. Phone-to-Mac images
+  need 2.7.11 or later: the phone sends bulk data as A-MSDU frames that older
+  builds dropped, so the paste stalled on "Connecting...". Mac-to-phone worked
+  earlier. Results may vary with the adapter and peer.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
@@ -74,6 +53,31 @@ With `SYMROOT="$PWD/build"` the unsigned kext is written to
 `build/Release/Tahoe/AirportItlwm.kext` (`build/Release/Sequoia/...` for the
 Sequoia scheme); `build/` is git-ignored. Without it, Xcode places products
 under `~/Library/Developer/Xcode/DerivedData/`.
+
+## Documentation
+
+We highly recommend exploring our documentation before using this Kernel Extension:
+
+- [Intro](https://OpenIntelWireless.github.io/itlwm)
+- [Compatibility](https://openintelwireless.github.io/itlwm/Compat)
+- [FAQ](https://openintelwireless.github.io/itlwm/FAQ)
+
+## AirportItlwm on macOS Sequoia
+
+The `AirportItlwm-Sequoia` target supports macOS Sequoia 15.2 and later on x86_64
+through the native Wi-Fi interface. It has been tested on macOS 15.8 (24H23).
+Sequoia and Tahoe use separate ABI headers and build products.
+
+With the same MacKernelSDK checkout described below:
+
+```sh
+xcodebuild -project itlwm.xcodeproj -scheme AirportItlwm-Sequoia \
+  -configuration Release ARCHS=x86_64 CODE_SIGNING_ALLOWED=NO build
+```
+
+Use this kext only on Darwin 24.2.0–24.99.99. Keep the Tahoe kext restricted to
+Darwin 25.x when both systems share an OpenCore configuration. HE remains opt-in
+with `itlwm_he=1`, and the Tahoe feature limitations below also apply to Sequoia.
 
 ## Questions and Issues
 
