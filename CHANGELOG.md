@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - README: moved the "AirportItlwm on macOS 26" section to the top, and documented that
   Universal Clipboard now works (text and images, both directions) as of 2.7.11.
-  Documentation only; no driver changes.
+  Fixed the two "below" references in the Sequoia section that pointed the wrong way after
+  the move. Documentation only; no driver changes.
 
 ## [2.7.11] — 2026-11-15
 

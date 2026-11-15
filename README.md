@@ -68,7 +68,7 @@ The `AirportItlwm-Sequoia` target supports macOS Sequoia 15.2 and later on x86_6
 through the native Wi-Fi interface. It has been tested on macOS 15.8 (24H23).
 Sequoia and Tahoe use separate ABI headers and build products.
 
-With the same MacKernelSDK checkout described below:
+With the same MacKernelSDK checkout described above:
 
 ```sh
 xcodebuild -project itlwm.xcodeproj -scheme AirportItlwm-Sequoia \
@@ -77,7 +77,7 @@ xcodebuild -project itlwm.xcodeproj -scheme AirportItlwm-Sequoia \
 
 Use this kext only on Darwin 24.2.0–24.99.99. Keep the Tahoe kext restricted to
 Darwin 25.x when both systems share an OpenCore configuration. HE remains opt-in
-with `itlwm_he=1`, and the Tahoe feature limitations below also apply to Sequoia.
+with `itlwm_he=1`, and the Tahoe feature limitations above also apply to Sequoia.
 
 ## Questions and Issues
 
