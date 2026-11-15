@@ -5,18 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.10] — 2026-11-15
+
+### Fixed
+
+- awdl0 bad-frame diagnostics: `AWDLDataRxBadLastRaw0..3` (renamed `AWDLDataRxBadLastPay0..3`)
+  captured the first 32 bytes from the 802.11 header, i.e. only 6 payload bytes. They now
+  capture the first 32 bytes *after* the header, enough to see an A-MSDU subframe header
+  (DA, SA, length) followed by the LLC/SNAP bytes, or to show the frame is something else.
+- Corrected the 2.7.9 note below: it said the bad frames "are not A-MSDUs" because
+  `AWDLDataRxAmsdu` stayed 0. That was wrong: `ItlIwx` clears the QoS A-MSDU bit itself for
+  hardware A-MSDU subframes before `inputAWDLData` runs, so the bit and that counter cannot
+  tell. Whether these frames are A-MSDU subframes is still unknown.
+
 ## [2.7.9] — 2026-11-15
 
 ### Added
 
 - awdl0 receive diagnostics only (no behaviour change): the last bad frame now also
-  records its QoS control (`AWDLDataRxBadLastQos`) and its first 32 bytes from the
-  802.11 header (`AWDLDataRxBadLastRaw0..3`), and `AWDLDataRxBadOver2304` counts bad
-  frames longer than the 2304-byte MSDU limit. In 2.7.8 the bad frames during a failed
-  Universal Clipboard image paste were all 2.4-3 KB QoS data frames with a non-AWDL
-  payload. They are not A-MSDUs: the A-MSDU bit is tested before the SNAP check and
-  `AWDLDataRxAmsdu` stayed 0, so these frames had it clear. This records what they
-  really are before any receive handling is changed.
+  records its QoS control (`AWDLDataRxBadLastQos`, the A-MSDU bit is always clear here, see
+  2.7.10) and its first bytes (`AWDLDataRxBadLastRaw0..3`), and `AWDLDataRxBadOver2304`
+  counts bad frames longer than the 2304-byte MSDU limit. In 2.7.8 the bad frames during a
+  failed Universal Clipboard image paste were all 2.4-3 KB QoS data frames with a non-AWDL
+  payload; this records what they really are before any receive handling is changed.
 
 ## [2.7.8] — 2026-11-15
 

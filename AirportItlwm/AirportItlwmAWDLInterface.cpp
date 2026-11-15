@@ -125,7 +125,7 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         for (size_t w = 0; w < 4; w++) {
             uint64_t r = 0;
             for (size_t i = 0; i < 8; i++)
-                r = (r << 8) | (w * 8 + i < len ? p[w * 8 + i] : 0);
+                r = (r << 8) | (hdr + w * 8 + i < len ? p[hdr + w * 8 + i] : 0);
             awdl->fDataRxBadLastRaw[w] = r;
         }
         if (mbuf_pkthdr_len(m) > 2304)
@@ -1740,10 +1740,10 @@ publishDataState()
     setProperty("AWDLDataRxBadLastHdr", fDataRxBadLastHdr, 32);
     setProperty("AWDLDataRxBadLastHead", fDataRxBadLastHead, 64);
     setProperty("AWDLDataRxBadLastQos", fDataRxBadLastQos, 32);
-    setProperty("AWDLDataRxBadLastRaw0", fDataRxBadLastRaw[0], 64);
-    setProperty("AWDLDataRxBadLastRaw1", fDataRxBadLastRaw[1], 64);
-    setProperty("AWDLDataRxBadLastRaw2", fDataRxBadLastRaw[2], 64);
-    setProperty("AWDLDataRxBadLastRaw3", fDataRxBadLastRaw[3], 64);
+    setProperty("AWDLDataRxBadLastPay0", fDataRxBadLastRaw[0], 64);
+    setProperty("AWDLDataRxBadLastPay1", fDataRxBadLastRaw[1], 64);
+    setProperty("AWDLDataRxBadLastPay2", fDataRxBadLastRaw[2], 64);
+    setProperty("AWDLDataRxBadLastPay3", fDataRxBadLastRaw[3], 64);
     setProperty("AWDLDataRxBadOver2304", fDataRxBadBig, 64);
     setProperty("AWDLDataRxLenLt128", fDataRxLen[0], 64);
     setProperty("AWDLDataRxLenLt512", fDataRxLen[1], 64);
