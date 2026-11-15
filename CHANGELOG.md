@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- README: documented Continuity Camera. It works over USB; wireless is blocked because
-  the Mac never sees the iPhone as nearby (cause undetermined, points at the
-  Bluetooth stack). Documentation only; no driver changes.
+- README: documented Continuity Camera. It works over USB (tested in Photo Booth);
+  wireless is blocked because the Mac never sees the iPhone as nearby (cause
+  undetermined, possibly the Bluetooth stack). Documentation only; no driver changes.
 
 ## [2.7.13] — 2026-11-15
 
