@@ -29,6 +29,15 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   Bluetooth, so it also depends on a working Intel Bluetooth stack
   (BlueToolFixup with `-btlfxadvsets` on macOS 26.7.3). Both devices need the same
   Apple ID, Wi-Fi and Bluetooth on, and Handoff enabled on each.
+- **Continuity Camera works over USB only.** With the iPhone connected by cable, it
+  appears as a camera in FaceTime and Photo Booth. Wirelessly it does not appear:
+  the Mac's Continuity Camera agent reads the iPhone as `nearby:0` (the same iPhone
+  reads `nearby:1` on an Apple Silicon Mac), and macOS only offers a wireless camera
+  once that flag is set. `nearbyd` on this setup logs "ranging not supported on
+  this platform" and ends its sessions with "BluetoothNotAvailable", which points at
+  the Bluetooth stack, not the Wi-Fi driver. There is no preference or boot-arg to
+  bypass the check (`CMCaptureDebug` only controls debug logging). The wireless
+  video path over AWDL is therefore untested, and the cause is undetermined.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
