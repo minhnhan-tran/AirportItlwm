@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.15] — 2026-11-16
+
+### Fixed
+
+- iwx: `iwx_mac_ctxt_cmd_fill_sta` no longer sends a zero beacon interval or
+  DTIM period to the firmware when the node was learned from a probe response
+  (no TIM element). Defaults to bi=100, dtim_period=1. Suspected, not yet
+  confirmed, cause of the `0x2000011A` UMAC assert on 2.4 GHz joins.
+
+### Added
+
+- iwx: log of bi/dtim_period/dtimcount/channel at each MAC context STA fill,
+  to confirm or rule out the suspected cause.
+
 ## [2.7.14] — 2026-11-15
 
 ### Changed

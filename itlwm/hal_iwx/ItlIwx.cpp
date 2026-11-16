@@ -9211,8 +9211,19 @@ iwx_mac_ctxt_cmd_fill_sta(struct iwx_softc *sc, struct iwx_node *in,
         sta->dtim_tsf = htole64(tsf + dtim_off);
         sta->assoc_beacon_arrive_time = htole32(ni->ni_rstamp);
     }
-    sta->bi = htole32(ni->ni_intval);
-    sta->dtim_interval = htole32(ni->ni_intval * ni->ni_dtimperiod);
+    /*
+     * A node learned only from probe responses (directed scan) has no TIM
+     * element, so ni_dtimperiod can be 0; never hand the firmware a zero
+     * beacon/DTIM interval.
+     */
+    uint32_t bi = ni->ni_intval ? ni->ni_intval : 100;
+    uint32_t dtim_period = ni->ni_dtimperiod ? ni->ni_dtimperiod : 1;
+    XYLog("%s bi=%u(raw %u) dtim_period=%u(raw %u) dtimcount=%u assoc=%d chan=%d\n",
+          __FUNCTION__, bi, ni->ni_intval, dtim_period, ni->ni_dtimperiod,
+          ni->ni_dtimcount, assoc,
+          ni->ni_chan ? ieee80211_chan2ieee(&sc->sc_ic, ni->ni_chan) : -1);
+    sta->bi = htole32(bi);
+    sta->dtim_interval = htole32(bi * dtim_period);
     /*
      * STA_MAC_DATA_API_S_VER_2 replaced the beacon/DTIM reciprocals with
      * reserved1 and data_policy (TWT/coex bits); a reciprocal there would
