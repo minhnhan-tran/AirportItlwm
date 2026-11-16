@@ -123,6 +123,33 @@
 #include <sys/_task.h>
 #include <sys/pcireg.h>
 #include <net80211/ieee80211_priv.h>
+#include <sys/sysctl.h>
+
+/* Runtime switches so link experiments need no reboot; both apply from the next association. */
+static int itlwm_txagg = 1;
+static int itlwm_ht_siso = 0;
+static bool itlwm_sysctl_registered = false;
+SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItlwm diagnostics");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
+
+/*
+ * Spatial streams usable towards the peer. On an HT-only link a peer in
+ * static SM power save listens on one chain and never ACKs 2-stream
+ * frames; iwlwifi drops the NSS 2 HT rates in that case as well.
+ */
+static int
+iwx_peer_nss(struct ieee80211_node *ni)
+{
+    if (ni == NULL)
+        return 1;
+    if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+        !(ni->ni_flags & (IEEE80211_NODE_VHT | IEEE80211_NODE_HE)) &&
+        (itlwm_ht_siso ||
+         ((ni->ni_htcaps & IEEE80211_HTCAP_SMPS_MASK) >> IEEE80211_HTCAP_SMPS_SHIFT) == IEEE80211_HTCAP_SMPS_STA))
+        return 1;
+    return ni->ni_rx_nss;
+}
 
 #define super ItlHalService
 OSDefineMetaClassAndStructors(ItlIwx, ItlHalService)
@@ -242,6 +269,12 @@ releaseAll()
 void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
+    if (itlwm_sysctl_registered) {
+        sysctl_unregister_oid(&sysctl__debug_itlwm_ht_siso);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_txagg);
+        sysctl_unregister_oid(&sysctl__debug_itlwm);
+        itlwm_sysctl_registered = false;
+    }
     super::free();
 }
 
@@ -4898,6 +4931,10 @@ iwx_ampdu_tx_start(struct ieee80211com *ic, struct ieee80211_node *ni, uint8_t t
         XYLog("%s tx agg refused. tid=%d\n", __FUNCTION__, tid);
         return ENOSPC;
     }
+
+    /* debug.itlwm.txagg=0 keeps every TID on the plain data queue. */
+    if (!itlwm_txagg)
+        return ENOTSUP;
     
     if (sc->ba_tx.start_tidmask & (1 << tid)) {
         XYLog("%s tid %d is pending to agg\n", __FUNCTION__, tid);
@@ -7990,7 +8027,7 @@ iwx_add_sta_cmd(struct iwx_softc *sc, struct iwx_node *in, int update)
             }
         }
         
-        if (iwx_mimo_enabled(sc) && ic->ic_bss->ni_rx_nss > 1)
+        if (iwx_mimo_enabled(sc) && iwx_peer_nss(ic->ic_bss) > 1)
             add_sta_cmd.station_flags |= htole32(IWX_STA_FLG_MIMO_EN_MIMO2);
         else
             add_sta_cmd.station_flags |= htole32(IWX_STA_FLG_MIMO_EN_SISO);
@@ -8011,29 +8048,24 @@ iwx_add_sta_cmd(struct iwx_softc *sc, struct iwx_node *in, int update)
             IEEE80211_VHTCAP_MAX_A_MPDU_LENGTH_EXPONENT_SHIFT;
             add_sta_cmd.station_flags |=
             htole32(min(max_aggsize, agg_size) << IWX_STA_FLG_MAX_AGG_SIZE_SHIFT);
-        } else if (in->in_ni.ni_flags & IEEE80211_NODE_HT)
-            add_sta_cmd.station_flags |= htole32(IWX_STA_FLG_MAX_AGG_SIZE_64K);
-        
-        switch (ic->ic_ampdu_params & IEEE80211_AMPDU_PARAM_SS) {
-            case IEEE80211_AMPDU_PARAM_SS_2:
-                add_sta_cmd.station_flags
-                |= htole32(IWX_STA_FLG_AGG_MPDU_DENS_2US);
-                break;
-            case IEEE80211_AMPDU_PARAM_SS_4:
-                add_sta_cmd.station_flags
-                |= htole32(IWX_STA_FLG_AGG_MPDU_DENS_4US);
-                break;
-            case IEEE80211_AMPDU_PARAM_SS_8:
-                add_sta_cmd.station_flags
-                |= htole32(IWX_STA_FLG_AGG_MPDU_DENS_8US);
-                break;
-            case IEEE80211_AMPDU_PARAM_SS_16:
-                add_sta_cmd.station_flags
-                |= htole32(IWX_STA_FLG_AGG_MPDU_DENS_16US);
-                break;
-            default:
-                break;
+        } else if (in->in_ni.ni_flags & IEEE80211_NODE_HT) {
+            /* The peer's HT limit; a fixed 64K overruns smaller receivers. */
+            uint32_t ht_agg = in->in_ni.ni_ampdu_param & IEEE80211_AMPDU_PARAM_LE;
+            add_sta_cmd.station_flags |= htole32(ht_agg << IWX_STA_FLG_MAX_AGG_SIZE_SHIFT);
         }
+        
+        {
+            /* MPDU start spacing the receiver needs: the peer's, never below our default. */
+            uint32_t peer_ss = (in->in_ni.ni_ampdu_param & IEEE80211_AMPDU_PARAM_SS) >> 2;
+            uint32_t own_ss = (ic->ic_ampdu_params & IEEE80211_AMPDU_PARAM_SS) >> 2;
+            add_sta_cmd.station_flags |=
+            htole32((peer_ss > own_ss ? peer_ss : own_ss) << IWX_STA_FLG_AGG_MPDU_DENS_SHIFT);
+        }
+        if (ic->ic_state >= IEEE80211_S_ASSOC)
+            XYLog("%s: peer htcaps=0x%04x ampdu=0x%02x smps=%d nss=%d->%d station_flags=0x%08x\n",
+                  __FUNCTION__, in->in_ni.ni_htcaps, in->in_ni.ni_ampdu_param,
+                  (in->in_ni.ni_htcaps & IEEE80211_HTCAP_SMPS_MASK) >> IEEE80211_HTCAP_SMPS_SHIFT,
+                  in->in_ni.ni_rx_nss, iwx_peer_nss(&in->in_ni), le32toh(add_sta_cmd.station_flags));
     }
     
     status = IWX_ADD_STA_SUCCESS;
@@ -10742,7 +10774,7 @@ iwx_rs_init(struct iwx_softc *sc, struct iwx_node *in, bool update)
     } else if (ni->ni_flags & IEEE80211_NODE_HT) {
         cfg_cmd.mode = IWX_TLC_MNG_MODE_HT;
         cfg_cmd.ht_rates[IWX_TLC_NSS_1][IWX_TLC_MCS_PER_BW_80] = htole16(iwx_rs_ht_rates(sc, ni, ni->ni_chw == IEEE80211_CHAN_WIDTH_40 ? IEEE80211_HT_RATESET_CBW40_SISO : IEEE80211_HT_RATESET_SISO));
-        if (ni->ni_rx_nss > 1)
+        if (iwx_peer_nss(ni) > 1)
             cfg_cmd.ht_rates[IWX_TLC_NSS_2][IWX_TLC_MCS_PER_BW_80] = htole16(iwx_rs_ht_rates(sc, ni, ni->ni_chw == IEEE80211_CHAN_WIDTH_40 ? IEEE80211_HT_RATESET_CBW40_MIMO2 : IEEE80211_HT_RATESET_MIMO2));
     } else
         cfg_cmd.mode = IWX_TLC_MNG_MODE_NON_HT;
@@ -15411,6 +15443,12 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     ic->ic_ampdu_rx_start = iwx_ampdu_rx_start;
     ic->ic_ampdu_rx_stop = iwx_ampdu_rx_stop;
     ic->ic_ampdu_tx_start = iwx_ampdu_tx_start;
+    if (!itlwm_sysctl_registered) {
+        sysctl_register_oid(&sysctl__debug_itlwm);
+        sysctl_register_oid(&sysctl__debug_itlwm_txagg);
+        sysctl_register_oid(&sysctl__debug_itlwm_ht_siso);
+        itlwm_sysctl_registered = true;
+    }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;
     ic->ic_update_chw = iwx_update_chw;
     /*

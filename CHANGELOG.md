@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.17] — 2026-11-16
+
+### Changed
+
+- iwx, HT-only links (2.4 GHz): the firmware station now gets the peer's advertised maximum
+  A-MPDU length instead of a fixed 64K, and an MPDU start spacing of at least the peer's
+  requirement (VHT/HE links already used the peer's length). Suspected cause of the iPhone
+  2.4 GHz hotspot stall (associated, data frames unacknowledged, then LMAC assert 0x91 with
+  the TID 0 aggregation queue never drained); not yet verified on hardware.
+- iwx, HT-only links: a peer in static SM power save is treated as single-stream (no 2-stream
+  HT rates, SISO station flag), as iwlwifi does.
+
+### Added
+
+- Runtime switches, applied from the next association: `sysctl debug.itlwm.txagg=0` (no TX
+  A-MPDU sessions) and `sysctl debug.itlwm.ht_siso=1` (single stream on HT-only links).
+- Association log line with the peer's HT capabilities, A-MPDU parameters, SM power save mode
+  and the resulting station flags.
+
 ## [2.7.16] — 2026-11-16
 
 ### Added
