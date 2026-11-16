@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.16] — 2026-11-16
+
+### Added
+
+- iwx diagnostics for the iPhone hotspot link (HE off: associated, but almost no traffic):
+  - CCMP hardware-decrypt failures split into frames from the associated BSS (by failed
+    check: SEC_ENC vs DEC_DONE|MIC_OK) and everything else (e.g. AWDL promiscuous
+    neighbours). Rate-limited log with status, frame control, sequence, destination.
+    Exported as the `NetRxDecDiag` property.
+  - Firmware TX failures counted by kind (data/mgmt/AWDL) with a status histogram and
+    the last status, RTS/frame retry counts and initial rate. Rate-limited log.
+    Exported as the `NetTxFailStats` property.
+
 ## [2.7.15] — 2026-11-16
 
 ### Fixed

@@ -5520,6 +5520,40 @@ iwx_ccmp_decap(struct iwx_softc *sc, mbuf_t m, struct ieee80211_node *ni,
    return 0;
 }
 
+/*
+ * 2.7.16 diagnostics: classify CCMP hw-decrypt failures. Only frames sent by
+ * the associated BSS matter for the link; others are most likely neighbours'
+ * frames delivered by AWDL promiscuous RX.
+ */
+static void
+iwx_dbg_dec_fail(struct ieee80211com *ic, const struct ieee80211_frame *wh,
+                 uint32_t rx_pkt_status, int mic)
+{
+    static uint32_t logged;
+    struct ieee80211_node *bss = ic->ic_bss;
+    if (!bss || memcmp(wh->i_addr2, bss->ni_bssid, IEEE80211_ADDR_LEN) != 0) {
+        ic->ic_dbg_dec_other++;
+        return;
+    }
+    if (mic)
+        ic->ic_dbg_dec_bss_mic++;
+    else
+        ic->ic_dbg_dec_bss_enc++;
+    ic->ic_dbg_dec_last_status = rx_pkt_status;
+    memcpy(ic->ic_dbg_dec_last_src, wh->i_addr2, IEEE80211_ADDR_LEN);
+    uint32_t n = ic->ic_dbg_dec_bss_enc + ic->ic_dbg_dec_bss_mic;
+    if (logged < 40 || (n % 256) == 0) {
+        const uint8_t *a1 = wh->i_addr1;
+        logged++;
+        XYLog("%s: %s failed status=0x%08x fc=%02x%02x seq=%u to=%02x:%02x:%02x:%02x:%02x:%02x %s (bss enc=%u mic=%u other=%u)\n",
+              __FUNCTION__, mic ? "DEC_DONE|MIC_OK" : "SEC_ENC", rx_pkt_status,
+              wh->i_fc[0], wh->i_fc[1], (unsigned)((wh->i_seq[0] | (wh->i_seq[1] << 8)) >> 4),
+              a1[0], a1[1], a1[2], a1[3], a1[4], a1[5],
+              IEEE80211_IS_MULTICAST(a1) ? "mcast" : "ucast",
+              ic->ic_dbg_dec_bss_enc, ic->ic_dbg_dec_bss_mic, ic->ic_dbg_dec_other);
+    }
+}
+
 int ItlIwx::
 iwx_rx_hwdecrypt(struct iwx_softc *sc, mbuf_t m, uint32_t rx_pkt_status,
                  struct ieee80211_rxinfo *rxi)
@@ -5553,6 +5587,7 @@ iwx_rx_hwdecrypt(struct iwx_softc *sc, mbuf_t m, uint32_t rx_pkt_status,
         if ((rx_pkt_status & IWX_RX_MPDU_RES_STATUS_SEC_ENC_MSK) !=
             IWX_RX_MPDU_RES_STATUS_SEC_CCM_ENC) {
             ic->ic_stats.is_ccmp_dec_errs++;
+            iwx_dbg_dec_fail(ic, wh, rx_pkt_status, 0);
             ret = 1;
             goto out;
         }
@@ -5563,6 +5598,7 @@ iwx_rx_hwdecrypt(struct iwx_softc *sc, mbuf_t m, uint32_t rx_pkt_status,
             (IWX_RX_MPDU_RES_STATUS_DEC_DONE |
              IWX_RX_MPDU_RES_STATUS_MIC_OK)) {
             ic->ic_stats.is_ccmp_dec_errs++;
+            iwx_dbg_dec_fail(ic, wh, rx_pkt_status, 1);
             ret = 1;
             goto out;
         }
@@ -6313,6 +6349,35 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
                  rate_n_flags, device_timestamp, &rxi, ml);
 }
 
+/* 2.7.16 diagnostics: firmware TX failure status, split by frame kind. */
+static void
+iwx_dbg_tx_fail(struct ieee80211com *ic, const struct iwx_tx_data *txd,
+                const struct iwx_tx_resp *tx_resp, int status)
+{
+    static uint32_t logged;
+    bool awdl = (txd->flags & IWX_TXDATA_FLAG_AWDL) != 0;
+    bool mgmt = txd->type == IEEE80211_FC0_TYPE_MGT;
+    if (awdl)
+        ic->ic_dbg_tx_fail_awdl++;
+    else if (mgmt)
+        ic->ic_dbg_tx_fail_mgmt++;
+    else
+        ic->ic_dbg_tx_fail_data++;
+    ic->ic_dbg_tx_fail_hist[status & 0xff]++;
+    ic->ic_dbg_tx_fail_last_status = le16toh(tx_resp->status.status);
+    ic->ic_dbg_tx_fail_last_rate = le32toh(tx_resp->initial_rate);
+    ic->ic_dbg_tx_fail_last_tries = tx_resp->failure_frame;
+    uint32_t n = ic->ic_dbg_tx_fail_awdl + ic->ic_dbg_tx_fail_mgmt + ic->ic_dbg_tx_fail_data;
+    if (logged < 40 || (n % 128) == 0) {
+        logged++;
+        XYLog("%s: status=0x%02x full=0x%04x %s rts_fail=%u frame_fail=%u rate=0x%08x (data=%u mgmt=%u awdl=%u)\n",
+              __FUNCTION__, status, le16toh(tx_resp->status.status),
+              awdl ? "awdl" : (mgmt ? "mgmt" : "data"),
+              tx_resp->failure_rts, tx_resp->failure_frame, le32toh(tx_resp->initial_rate),
+              ic->ic_dbg_tx_fail_data, ic->ic_dbg_tx_fail_mgmt, ic->ic_dbg_tx_fail_awdl);
+    }
+}
+
 void ItlIwx::
 iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
                      struct iwx_tx_data *txd)
@@ -6339,6 +6404,7 @@ iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
     if (txfail) {
         DPRINTFN(3, ("%s %d OUTPUT_ERROR type=%d status=%d\n", __FUNCTION__, __LINE__, txd->type, status));
         ifp->netStat->outputErrors++;
+        iwx_dbg_tx_fail(ic, txd, tx_resp, status);
         if (txd->type == IEEE80211_FC0_TYPE_MGT)
             iwx_toggle_tx_ant(sc, &sc->sc_mgmt_last_antenna_idx);
     }

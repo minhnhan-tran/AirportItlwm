@@ -576,6 +576,19 @@ struct ieee80211com {
     uint32_t        ic_awdl_fw_uc_data;
     uint32_t        ic_awdl_fw_uc_badcrc;
     uint32_t        ic_awdl_fw_uc_drop_decrypt;
+	/* 2.7.16 diagnostics: CCMP hw-decrypt failures by source/check, TX failures by status */
+	uint32_t	ic_dbg_dec_bss_enc;
+	uint32_t	ic_dbg_dec_bss_mic;
+	uint32_t	ic_dbg_dec_other;
+	uint32_t	ic_dbg_dec_last_status;
+	uint8_t		ic_dbg_dec_last_src[6];
+	uint32_t	ic_dbg_tx_fail_data;
+	uint32_t	ic_dbg_tx_fail_mgmt;
+	uint32_t	ic_dbg_tx_fail_awdl;
+	uint32_t	ic_dbg_tx_fail_last_status;
+	uint32_t	ic_dbg_tx_fail_last_rate;
+	uint32_t	ic_dbg_tx_fail_last_tries;
+	uint32_t	ic_dbg_tx_fail_hist[256];
     uint32_t        ic_awdl_fw_uc_drop_dup;
     uint8_t         ic_awdl_fw_uc_last_chan;
     uint16_t        ic_awdl_fw_uc_last_fc;

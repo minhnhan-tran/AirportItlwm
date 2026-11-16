@@ -1891,6 +1891,20 @@ publishTxState()
              ic->ic_stats.is_rx_wrongdir, ic->ic_stats.is_rx_wrongbss, ic->ic_stats.is_rx_tooshort,
              ic->ic_stats.is_rx_notassoc, ic->ic_stats.is_rx_dup, ic->ic_stats.is_rx_decap, ic->ic_stats.is_rx_ctl);
     setProperty("NetRxDropStats", st);
+    snprintf(st, sizeof(st), "bss_enc %u bss_mic %u other %u last_status 0x%08x last_src %02x:%02x:%02x:%02x:%02x:%02x",
+             ic->ic_dbg_dec_bss_enc, ic->ic_dbg_dec_bss_mic, ic->ic_dbg_dec_other, ic->ic_dbg_dec_last_status,
+             ic->ic_dbg_dec_last_src[0], ic->ic_dbg_dec_last_src[1], ic->ic_dbg_dec_last_src[2],
+             ic->ic_dbg_dec_last_src[3], ic->ic_dbg_dec_last_src[4], ic->ic_dbg_dec_last_src[5]);
+    setProperty("NetRxDecDiag", st);
+    {
+        int o = snprintf(st, sizeof(st), "data %u mgmt %u awdl %u last 0x%04x tries %u rate 0x%08x hist",
+                         ic->ic_dbg_tx_fail_data, ic->ic_dbg_tx_fail_mgmt, ic->ic_dbg_tx_fail_awdl,
+                         ic->ic_dbg_tx_fail_last_status, ic->ic_dbg_tx_fail_last_tries, ic->ic_dbg_tx_fail_last_rate);
+        for (int s = 0; s < 256 && o > 0 && o < (int)sizeof(st) - 16; s++)
+            if (ic->ic_dbg_tx_fail_hist[s])
+                o += snprintf(st + o, sizeof(st) - o, " %02x:%u", s, ic->ic_dbg_tx_fail_hist[s]);
+        setProperty("NetTxFailStats", st);
+    }
     setProperty("AWDLP2PAddrChanges", ic->ic_awdl_p2p_addr_changes, 32);
     if (ic->ic_awdl_rx_uc_action + ic->ic_awdl_rx_uc_data + ic->ic_awdl_rx_uc_other) {
         char src[24];
