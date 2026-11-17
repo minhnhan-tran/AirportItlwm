@@ -291,6 +291,22 @@ static bool awListenAllowed()
     return allowed == 1;
 }
 
+// While the station is associated, an AWDL listen on another channel takes the
+// radio off the infra channel for up to a dwell (160 TU). Back to back, that
+// starves the infra link: on an iPhone hotspot on channel 36 with AWDL on 149,
+// 60-90% loss, 0.5-10 s RTT and CCMP errors, but 0% with awdl0 down. So hold
+// those listens, except during active peer traffic (AirDrop) and, with
+// itlawdlinfranth=<n>, one in every n to keep some peer discovery.
+static unsigned awInfraListenNth()
+{
+    static int nth = -1;
+    if (nth < 0) {
+        int v = 0;
+        nth = PE_parse_boot_argn("itlawdlinfranth", &v, sizeof(v)) && v > 0 ? v : 0;
+    }
+    return (unsigned)nth;
+}
+
 // Diagnostic: itlawdllistench=<n> sends every listen dwell to channel n
 // instead of the AW slot channel, e.g. the channel the phone sits on.
 static unsigned awListenChannelOverride()
@@ -1052,6 +1068,16 @@ void AirportItlwmAWDLInterface::
 startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
 {
     ieee80211com *ic = fController->fHalService->get80211Controller();
+    if (home && chan != home && ic->ic_opmode == IEEE80211_M_STA &&
+        ic->ic_state == IEEE80211_S_RUN && fPeerTrafficActive == 0) {
+        unsigned nth = awInfraListenNth();
+        if (!nth || ++fListenInfraSlot % nth) {
+            fListenInfraHold++;
+            if ((fListenInfraHold & 0xff) == 1)
+                setProperty("AWDLListenInfraHold", fListenInfraHold, 64);
+            return;
+        }
+    }
     int err = ic->ic_awdl_listen(ic, (uint8_t)chan, (uint16_t)dwellTU);
     if (err) {
         fListenBusy++;
@@ -2151,6 +2177,8 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fListenStarted = 0;
     fListenBusy = 0;
     fListenSkippedHome = 0;
+    fListenInfraHold = 0;
+    fListenInfraSlot = 0;
     fListenDwellTU = kListenDwellTU;
     fListenEveryNth = kListenEveryNthSlot;
     fListenTimer = nullptr;

@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.33] — 2026-11-17
+
+### Fixed
+
+- iPhone Personal Hotspot (and any infra network) lost most traffic while awdl0 was up. AWDL
+  listens on its own channel (149 here) took the radio off the infra channel (36) for up to
+  160 TU, back to back. The 2.7.32 counters showed 60–90% ping loss, 0.5–10 s RTT, about 2,600
+  CCMP decrypt errors per 20 pings and TX status 0x91 (STA color mismatch). With
+  `ifconfig awdl0 down` the same link had 0% loss, gateway 4 ms, and HTTPS 200 (reproduced
+  twice). Off-channel AWDL listens (which only run while the station is associated) are now
+  held when their channel differs from the infra channel, unless airportd reports active AWDL
+  peer traffic (AirDrop). AWDL activity on the infra channel is unchanged. Boot-arg
+  `itlawdlinfranth=<n>` lets one in every n held listens through for peer discovery. The held
+  count shows as `AWDLListenInfraHold`.
+
 ## [2.7.32] — 2026-11-17
 
 ### Added
