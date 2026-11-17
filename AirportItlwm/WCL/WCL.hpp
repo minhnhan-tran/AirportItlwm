@@ -441,6 +441,47 @@ inline bool scanChannelSelected(const uint8_t *channels, bool restricted, unsign
     return !restricted || (channel < 256 && (channels[channel / 8] & (1U << (channel % 8))));
 }
 
+/*
+ * SCAN_REQ as IO80211.framework's Apple80211Scan builds it when the card
+ * reports capability 73 (macOS 26, 0x1598 bytes). The head matches
+ * apple80211_scan_data: ssid_len 0x10, ssid 0x14, scan_type 0x34,
+ * num_channels 0x44, apple80211_channel entries from 0x48 (room for 400).
+ * The SSID list follows: count at 0x1314, up to 10 entries of 0x38 bytes from
+ * 0x1318 (version, ssid_len, ssid). Only the first SSID is used: the HAL
+ * probes for one.
+ */
+inline void decodeLegacyScan(const void *buffer, ScanRequest &out) {
+    const uint8_t *p = static_cast<const uint8_t *>(buffer);
+    out = {};
+    out.type = read32(p + 0x34);
+    if (out.type < 1 || out.type > 4)
+        out.type = 1;
+    uint32_t ssidLength = read32(p + 0x10);
+    const uint8_t *ssid = p + 0x14;
+    uint32_t listCount = read32(p + 0x1314);
+    if ((!ssidLength || ssidLength > 32) && listCount && listCount <= 10) {
+        ssidLength = read32(p + 0x1318 + 4);
+        ssid = p + 0x1318 + 8;
+    }
+    if (ssidLength && ssidLength <= 32) {
+        out.ssidLength = ssidLength;
+        memcpy(out.ssid, ssid, ssidLength);
+    }
+    uint32_t count = read32(p + 0x44);
+    if (count > 400)
+        count = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t *entry = p + 0x48 + size_t(i) * 12;
+        uint32_t channel = read32(entry + 4), flags = read32(entry + 8);
+        if (!channel || channel > 196 || (flags & 0x2000))
+            continue;
+        if (((flags & 0x8) && channel > 14) || ((flags & 0x10) && channel <= 14))
+            continue;
+        out.channels[channel / 8] |= 1U << (channel % 8);
+        out.channelCount++;
+    }
+}
+
 inline bool decodeScan(const void *buffer, size_t length, ScanRequest &out) {
     if (!buffer || length < 0x58)
         return false;

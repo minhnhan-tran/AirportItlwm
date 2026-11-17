@@ -957,6 +957,11 @@ getLINK_CHANGED_EVENT_DATA(struct apple80211_link_changed_event_data *ed)
 IOReturn AirportItlwmSkywalkInterface::
 setSCAN_REQ(struct apple80211_scan_data *sd)
 {
+#if defined(AIRPORT_WCL) && __IO80211_TARGET >= __MAC_26_0
+    if (!sd || fScanResultWrapping)
+        return 22;
+    return beginLegacyScan(sd);
+#else
     struct ieee80211com *ic = fHalService->get80211Controller();
 #if 0
     XYLog("%s Type: %u BSS Type: %u PHY Mode: %u Dwell time: %u Rest time: %u Num channels: %u SSID: %s BSSID: %s\n",
@@ -987,6 +992,7 @@ setSCAN_REQ(struct apple80211_scan_data *sd)
         scanSource->enable();
     }
     return kIOReturnSuccess;
+#endif
 }
 
 extern OSDictionary *convertScanToDictionary(apple80211_scan_result *a1);

@@ -100,6 +100,7 @@ void AirportItlwmSkywalkInterface::stopWCL()
         scanSource->cancelTimeout();
     scanPending = joinPending = false;
     joinDeferred = scanDeferred = false;
+    legacyScanPending = legacyScanOnly = false;
     explicit_bzero(&deferredJoin, sizeof(deferredJoin));
     if (fHalService) {
         ieee80211com *ic = fHalService->get80211Controller();
@@ -362,6 +363,8 @@ void AirportItlwmSkywalkInterface::finishWCLScan(IOReturn status)
 {
     if (!scanPending)
         return;
+    bool notifyWCL = !legacyScanOnly;
+    legacyScanOnly = false;
     scanDeferred = false;
     scanPending = false;
     scanCompleted = false;
@@ -385,13 +388,66 @@ void AirportItlwmSkywalkInterface::finishWCLScan(IOReturn status)
             instance->postMessage(this, AirportWCL::ScanResult, wclScanResults[i].data,
                                   wclScanResults[i].size, true);
     clearWCLScanResults();
-    instance->postMessage(this, AirportWCL::ScanDone, &status, sizeof(status), true);
+    if (notifyWCL)
+        instance->postMessage(this, AirportWCL::ScanDone, &status, sizeof(status), true);
+    if (legacyScanPending)
+        finishLegacyScan();
 }
 
 void AirportItlwmSkywalkInterface::completeWCLScan()
 {
-    if (!wclStopping)
-        finishWCLScan(scanCompleted ? kIOReturnSuccess : kIOReturnTimeout);
+    if (wclStopping)
+        return;
+    if (!scanPending) {
+        // A legacy request answered from the node cache (no scan was started).
+        if (legacyScanPending)
+            finishLegacyScan();
+        return;
+    }
+    finishWCLScan(scanCompleted ? kIOReturnSuccess : kIOReturnTimeout);
+}
+
+/*
+ * SCAN_REQ from IO80211.framework's Apple80211Scan (airportd's Instant Hotspot
+ * join, among others). Run it as a WCL scan, directed at its SSID on its
+ * channels, and answer with the legacy scan-done event that Apple80211Scan
+ * waits for before reading SCAN_RESULT (the node cache).
+ */
+IOReturn AirportItlwmSkywalkInterface::beginLegacyScan(const void *request)
+{
+    AirportWCL::ScanRequest scan;
+    AirportWCL::decodeLegacyScan(request, scan);
+    XYLog("%s type=%u ssid_len=%u channels=%u wcl_pending=%d legacy_pending=%d\n", __FUNCTION__,
+          scan.type, scan.ssidLength, scan.channelCount, scanPending, legacyScanPending);
+    if (wclStopping)
+        return kIOReturnNotReady;
+    if (legacyScanPending)
+        return kIOReturnSuccess;    // The pending answer covers this request too.
+    legacyScanPending = true;
+    if (scanPending)
+        return kIOReturnSuccess;    // The end of the scan in progress answers it.
+    if (scan.type != APPLE80211_SCAN_TYPE_FAST) {
+        legacyScanOnly = true;
+        IOReturn ret = startWCLScan(scan);
+        if (ret == kIOReturnSuccess) {
+            deferredScan = scan;
+            clearWCLScanResults();
+            return kIOReturnSuccess;
+        }
+        legacyScanOnly = false;
+        XYLog("%s scan not started (0x%x), answering from the cache\n", __FUNCTION__, ret);
+    }
+    // Answer after 100 ms, once Apple80211Scan is waiting for the event.
+    scanSource->setTimeoutMS(100);
+    scanSource->enable();
+    return kIOReturnSuccess;
+}
+
+void AirportItlwmSkywalkInterface::finishLegacyScan()
+{
+    legacyScanPending = false;
+    UInt32 msg = 0;
+    instance->postMessage(this, APPLE80211_M_SCAN_DONE, &msg, sizeof(msg), true);
 }
 
 void AirportItlwmSkywalkInterface::publishWCLBeacon(const ieee80211_node *node, const uint8_t *ies, size_t length)

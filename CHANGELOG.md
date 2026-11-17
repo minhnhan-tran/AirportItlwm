@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.19] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 2 (Tahoe): the card now reports capability 73 (byte 9, 0x02).
+  Without it IO80211.framework's `Apple80211Scan`, which airportd's hotspot join uses, always
+  sends `SCAN_REQ_MULTIPLE`. The WCL interface has no handler for that ioctl, so every such
+  scan failed with 102 (seen on 2.7.18). With it, the framework sends `SCAN_REQ` in a
+  0x1598-byte layout that does reach the driver.
+- `SCAN_REQ` on the WCL path (Tahoe) now starts a real scan, directed at the request's SSID
+  (its own field, or the first entry of its SSID list) on its channels, through the WCL scan
+  engine. When it ends the driver posts the legacy `APPLE80211_M_SCAN_DONE`, which
+  `Apple80211Scan` waits for before reading `SCAN_RESULT`. Fast scans, or requests that can't
+  start a scan, are answered from the node cache after 100 ms. A request that arrives during
+  a WCL scan is answered when that scan ends. Previously this ioctl ran an undirected
+  background scan and could cut an in-progress WCL scan short. Each request is logged
+  (`beginLegacyScan`). Not yet verified on hardware.
+
 ## [2.7.18] — 2026-11-17
 
 ### Fixed

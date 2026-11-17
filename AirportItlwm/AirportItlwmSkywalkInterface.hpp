@@ -454,6 +454,8 @@ private:
     IOReturn startWCLScan(AirportWCL::ScanRequest &);
     void resumeWCLScan();
     void finishWCLScan(IOReturn);
+    IOReturn beginLegacyScan(const void *request);
+    void finishLegacyScan();
     void finishWCLJoin(uint16_t, uint16_t, IOReturn);
     void publishWCLBeacon(const ieee80211_node *, const uint8_t *, size_t);
     void keepWCLScanResult(const AirportWCL::BeaconMetadata *, size_t);
@@ -467,6 +469,11 @@ private:
     bool scanSkipCompletion;
     // A scan request held while the firmware restarts (resumeWCLScan).
     bool scanDeferred = false;
+    // A legacy SCAN_REQ (Apple80211Scan) waiting for APPLE80211_M_SCAN_DONE,
+    // and whether the scan in progress was started only for it (WCL is then
+    // not sent ScanDone).
+    bool legacyScanPending = false;
+    bool legacyScanOnly = false;
     AirportWCL::ScanRequest deferredScan = {};
     // The latest result per BSS of the scan request in progress, posted again
     // just before ScanDone (see finishWCLScan).
