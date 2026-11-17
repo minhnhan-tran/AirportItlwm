@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.34] — 2026-11-17
+
+### Fixed
+
+- iPhone hotspot loss with awdl0 up, part 2. On 2.7.33 the off-channel listens were held
+  (`AWDLListenInfraHold` reached 769), yet traffic still saw 100% loss: about 2,900 CCMP errors
+  per 10-ping run, TX status 0x91, and 182 frames stuck on TX queue 2. With awdl0 down the loss
+  was 0%. After its last listen the P2P MAC stays bound to a PHY context on the AWDL channel
+  (149), so the firmware keeps time-sharing with the station's channel (36). When it starts
+  holding listens, the AWDL interface now issues one short listen (16 TU) on the infra channel.
+  That moves the P2P PHY there, and it retries until the firmware accepts. The count shows as
+  `AWDLListenParked`. The 2.7.33 entry below described a full fix; it was only part of one.
+
 ## [2.7.33] — 2026-11-17
 
 ### Fixed

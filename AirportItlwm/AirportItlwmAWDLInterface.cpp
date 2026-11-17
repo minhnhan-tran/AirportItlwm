@@ -297,6 +297,8 @@ static bool awListenAllowed()
 // 60-90% loss, 0.5-10 s RTT and CCMP errors, but 0% with awdl0 down. So hold
 // those listens, except during active peer traffic (AirDrop) and, with
 // itlawdlinfranth=<n>, one in every n to keep some peer discovery.
+static const uint16_t kListenParkTU = 16;
+
 static unsigned awInfraListenNth()
 {
     static int nth = -1;
@@ -1075,10 +1077,25 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
             fListenInfraHold++;
             if ((fListenInfraHold & 0xff) == 1)
                 setProperty("AWDLListenInfraHold", fListenInfraHold, 64);
+            /*
+             * Holding listens is not enough: after the last one the P2P MAC
+             * stays bound to a PHY on the AWDL channel, and the firmware
+             * keeps sharing time with it (2.7.33: listens held, still 100%
+             * loss). One short listen on the infra channel moves that PHY
+             * there; repeat until it is accepted.
+             */
+            if (fListenParkChan != home &&
+                ic->ic_awdl_listen(ic, (uint8_t)home, (uint16_t)kListenParkTU) == 0) {
+                fListenParkChan = home;
+                fListenParked++;
+                setProperty("AWDLListenParked", fListenParked, 64);
+            }
             return;
         }
     }
     int err = ic->ic_awdl_listen(ic, (uint8_t)chan, (uint16_t)dwellTU);
+    if (err == 0)
+        fListenParkChan = (chan == home) ? home : 0;
     if (err) {
         fListenBusy++;
     } else {
@@ -2179,6 +2196,8 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fListenSkippedHome = 0;
     fListenInfraHold = 0;
     fListenInfraSlot = 0;
+    fListenParkChan = 0;
+    fListenParked = 0;
     fListenDwellTU = kListenDwellTU;
     fListenEveryNth = kListenEveryNthSlot;
     fListenTimer = nullptr;

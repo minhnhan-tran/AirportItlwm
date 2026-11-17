@@ -200,6 +200,8 @@ private:
     uint64_t fListenSkippedHome;
     uint64_t fListenInfraHold;      // off-channel listens held while infra is associated
     uint32_t fListenInfraSlot;
+    unsigned fListenParkChan;       // P2P PHY parked on this infra channel (0: not parked)
+    uint64_t fListenParked;
     uint32_t fListenDwellTU;        // AWDLListenDwellTU
     uint32_t fListenEveryNth;       // AWDLListenEveryNth: 1 = every eligible slot
     // Peer timeline, so a listen can start when the peer is on the channel.
