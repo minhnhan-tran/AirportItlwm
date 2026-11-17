@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.27] — 2026-11-17
+
+### Fixed
+
+- 2.7.26 ran the `ic_link_up` hook only when the link state changed. Builds with the Apple
+  supplicant (Big Sur to Sonoma) bring the link up at RUN and mark the port valid later, when
+  airportd installs the keys. So on WPA networks power save never came back on there. The hook
+  now runs on every STA link-up request, including group rekeys (they only re-send the MAC and
+  power commands).
+
 ## [2.7.26] — 2026-11-17
 
 ### Fixed

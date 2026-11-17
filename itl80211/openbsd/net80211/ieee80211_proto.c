@@ -1774,13 +1774,19 @@ ieee80211_set_link_state(struct ieee80211com *ic, int nstate)
         if (link_state == LINK_STATE_UP) {
             XYLog("%s LINK_STATE_IS_UP\n", __FUNCTION__);
             ifp->controller->setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, ifp->controller->getCurrentMedium());
-            if (ic->ic_opmode == IEEE80211_M_STA && ic->ic_link_up != NULL)
-                ic->ic_link_up(ic);
         } else {
             XYLog("%s LINK_STATE_IS_DOWN\n", __FUNCTION__);
             ifp->controller->setLinkStatus(kIONetworkLinkValid);
         }
     }
+    /*
+     * On every STA link-up request, not only on a transition: with
+     * USE_APPLE_SUPPLICANT the link is up at RUN and the port becomes valid
+     * later, when the keys are installed (the HAL re-evaluates power save).
+     */
+    if (link_state == LINK_STATE_UP && ic->ic_opmode == IEEE80211_M_STA &&
+        ic->ic_link_up != NULL)
+        ic->ic_link_up(ic);
 //	if (nstate != ifp->if_link_state) {
 //		ifp->if_link_state = nstate;
 //		if (LINK_STATE_IS_UP(nstate)) {
