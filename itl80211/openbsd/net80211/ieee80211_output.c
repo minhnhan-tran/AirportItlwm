@@ -1532,6 +1532,30 @@ ieee80211_log_hex(const char *tag, const u_int8_t *p, size_t l, size_t max)
     }
 }
 
+/*
+ * Hex-dump a frame body whose IEs start at 'fixed', with the payload of
+ * every vendor-specific IE (221) zeroed after its OUI and type: Apple's
+ * hotspot IEs in (Re)Association Responses can carry SSIDs and credentials.
+ */
+static void
+ieee80211_log_ies(const char *tag, const u_int8_t *p, size_t l, size_t fixed)
+{
+    u_int8_t copy[512];
+    size_t off;
+
+    if (l > sizeof(copy))
+        l = sizeof(copy);
+    memcpy(copy, p, l);
+    for (off = fixed; off + 2 <= l; off += 2 + copy[off + 1]) {
+        size_t len = copy[off + 1], body = off + 2, keep = 4;
+        if (copy[off] != IEEE80211_ELEMID_VENDOR || len <= keep)
+            continue;
+        for (size_t i = body + keep; i < body + len && i < l; i++)
+            copy[i] = 0;
+    }
+    ieee80211_log_hex(tag, copy, l, sizeof(copy));
+}
+
 /*-
  * (Re)Association request frame format:
  * [2]   Capability information
@@ -1656,7 +1680,8 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
               ni->ni_rsnciphers, ni->ni_rsngroupcipher, !!(ic->ic_caps & IEEE80211_C_MFP),
               !!(ni->ni_flags & IEEE80211_NODE_PMKID), !!(ic->ic_flags & IEEE80211_F_HTON),
               !!vht_on, ni->ni_he_requested);
-        ieee80211_log_hex("assoc_req", body, l, 512);
+        ieee80211_log_ies("assoc_req", body, l,
+                          type == IEEE80211_FC0_SUBTYPE_REASSOC_REQ ? 10 : 4);
         if (ni->ni_rsnie != NULL)
             ieee80211_log_hex("bss rsnie", ni->ni_rsnie, 2 + ni->ni_rsnie[1], 96);
     }

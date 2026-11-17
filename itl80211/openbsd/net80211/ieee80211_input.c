@@ -2780,6 +2780,30 @@ ieee80211_log_hex(const char *tag, const u_int8_t *p, size_t l, size_t max)
     }
 }
 
+/*
+ * Hex-dump a frame body whose IEs start at 'fixed', with the payload of
+ * every vendor-specific IE (221) zeroed after its OUI and type: Apple's
+ * hotspot IEs in (Re)Association Responses can carry SSIDs and credentials.
+ */
+static void
+ieee80211_log_ies(const char *tag, const u_int8_t *p, size_t l, size_t fixed)
+{
+    u_int8_t copy[512];
+    size_t off;
+
+    if (l > sizeof(copy))
+        l = sizeof(copy);
+    memcpy(copy, p, l);
+    for (off = fixed; off + 2 <= l; off += 2 + copy[off + 1]) {
+        size_t len = copy[off + 1], body = off + 2, keep = 4;
+        if (copy[off] != IEEE80211_ELEMID_VENDOR || len <= keep)
+            continue;
+        for (size_t i = body + keep; i < body + len && i < l; i++)
+            copy[i] = 0;
+    }
+    ieee80211_log_hex(tag, copy, l, sizeof(copy));
+}
+
 /*-
  * (Re)Association response frame format:
  * [2]   Capability information
@@ -2832,7 +2856,7 @@ ieee80211_recv_assoc_resp(struct ieee80211com *ic, mbuf_t m,
           reassoc, (unsigned)capinfo, (unsigned)status,
           efrm > frm ? (size_t)(efrm - frm) : 0);
     if (efrm > frm)
-        ieee80211_log_hex("assoc_resp", frm, efrm - frm, 384);
+        ieee80211_log_ies("assoc_resp", frm, efrm - frm, 2);
 #ifndef AIRPORT_WCL
     if (status == IEEE80211_STATUS_SUCCESS)
 #endif

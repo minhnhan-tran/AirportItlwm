@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.30] — 2026-11-17
+
+### Changed
+
+- The `assoc_req` and `assoc_resp` hex dumps now zero the payload of every vendor-specific IE
+  (221) after its OUI and type, because Apple's hotspot IEs can carry SSIDs or credentials. IE
+  ids, lengths and all standard IEs are kept, so dumps can still be compared byte by byte.
+  `assoc_resp` dumps are now capped at 512 bytes, up from 384.
+
+### Notes
+
+- Instant Hotspot click test with Maximize Compatibility on: the BLE handoff works. rapportd
+  pair-verifies and the iPhone answers `com.sharing.hotspot.request` with name, channel 36 and
+  `hasPassword: yes`. airportd then joins the 5 GHz BSS on channel 36 and times out four times
+  (-3905, about 10.3 s each) without receiving EAPOL msg 1/4. A manual password join to the
+  2.4 GHz BSS (channel 6) completes the 4-way handshake in 23 ms. The failure follows the 5 GHz
+  join, not the driver handshake.
+
 ## [2.7.29] — 2026-11-17
 
 ### Added
