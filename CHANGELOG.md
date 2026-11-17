@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.23] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 5. 2.7.22 logs show the click-time scan is a WCL scan with the SSID
+  (found at 0x1324) on channel 36 only. The iPhone was there the whole time, sending beacons with
+  a hidden SSID (`ssid[0]`, -50 dBm), but no probe response ever came back. The iwx scan
+  (`iwx_umac_scan_fill_channels`) never sends probes on channels the NVM marks passive. With
+  LAR, that profile marks 5 GHz passive, while the firmware enforces no-IR itself (passive dwell
+  until it hears a beacon), which Linux iwlwifi and OpenBSD iwx rely on. So the directed probe
+  that makes a hidden hotspot answer was never sent. Directed WCL scans now probe passive
+  non-DFS channels when LAR is enabled. DFS channels and broadcast scans are unchanged.
+
+### Changed
+
+- The `AirportItlwm: WCL scan` line also lists which requested channels the driver marks
+  passive or DFS (`passive=[...] dfs=[...]`).
+
 ## [2.7.22] — 2026-11-17
 
 ### Changed

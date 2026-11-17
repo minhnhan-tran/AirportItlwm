@@ -256,10 +256,24 @@ IOReturn AirportItlwmSkywalkInterface::beginWCLScan(apple80211ScanRequest *reque
         char channels[96];
         memcpy(ssid, scan.ssid, scan.ssidLength);
         AirportWCL::formatChannels(scan.channels, channels, sizeof(channels));
+        // Requested channels the driver map marks passive / DFS (probe decisions).
+        uint8_t passiveMap[32] = {}, dfsMap[32] = {};
+        const ieee80211com *lic = fHalService->get80211Controller();
+        for (unsigned ch = 1; ch < 256 && ch <= IEEE80211_CHAN_MAX; ++ch) {
+            if (!(scan.channels[ch / 8] & (1U << (ch % 8))))
+                continue;
+            if (lic->ic_channels[ch].ic_flags & IEEE80211_CHAN_PASSIVE)
+                passiveMap[ch / 8] |= 1U << (ch % 8);
+            if (lic->ic_channels[ch].ic_flags & IEEE80211_CHAN_DFS)
+                dfsMap[ch / 8] |= 1U << (ch % 8);
+        }
+        char passive[96], dfs[96];
+        AirportWCL::formatChannels(passiveMap, passive, sizeof(passive));
+        AirportWCL::formatChannels(dfsMap, dfs, sizeof(dfs));
         const uint8_t *t = raw + 0x1318;
-        IOLog("AirportItlwm: WCL scan id=%u type=%u ssid_len=%u@0x%x ssid=%s channels=%u [%s] "
+        IOLog("AirportItlwm: WCL scan id=%u type=%u ssid_len=%u@0x%x ssid=%s channels=%u [%s] passive=[%s] dfs=[%s] "
               "@1318: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
-              scan.identifier, scan.type, scan.ssidLength, scan.ssidOffset, ssid, scan.channelCount, channels,
+              scan.identifier, scan.type, scan.ssidLength, scan.ssidOffset, ssid, scan.channelCount, channels, passive, dfs,
               AirportWCL::read32(t), AirportWCL::read32(t + 4), AirportWCL::read32(t + 8),
               AirportWCL::read32(t + 12), AirportWCL::read32(t + 16), AirportWCL::read32(t + 20),
               AirportWCL::read32(t + 24), AirportWCL::read32(t + 28), AirportWCL::read32(t + 32),
