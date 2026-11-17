@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capability 73 the hotspot scans now run (active, channel 36), but they found only the other
   APs there. These requests carry the SSID only in the list after the channel table, while
   `decodeScan` read only the single SSID field. The probes were therefore wildcard, which a
-  hidden hotspot ignores. For active scans where that field is empty, the SSID is now taken from
-  the first list entry: a length of 2-32, then that many printable/UTF-8 bytes, then zero
-  padding. Broadcast scans are never searched.
+  hidden hotspot ignores. For active scans of 1-4 channels where that field is empty (the hotspot
+  join scans one), the SSID is now taken from the first list entry: a length of 2-32, then
+  that many printable/UTF-8 bytes, then zero padding. Broadcast scans keep their wildcard probes.
 
 ### Changed
 
