@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.31] — 2026-11-17
+
+### Added
+
+- `debug.itlwm.ps` sysctl (default 1). Set it to 0 to keep iwx out of 802.11 power save
+  (POWER_MANAGEMENT_ENA) while associated as a client. It takes effect at the next power-table
+  update: association, port authorization, or a Wi-Fi off/on. Test case: on 2.7.30 the iPhone
+  hotspot joined fine on 5 GHz (auto-join, -41 dBm, 4-way handshake done), but pings lost 75-90%
+  with 2-3.7 s RTT and 7 beacon misses. The 2.4 GHz manual join showed the same symptom (no DHCP
+  reply). The switch shows whether power save causes this. The flags sent are visible in the
+  `ItlwmPMFlags` property.
+
 ## [2.7.30] — 2026-11-17
 
 ### Changed

@@ -128,10 +128,12 @@
 /* Runtime switches so link experiments need no reboot; both apply from the next association. */
 static int itlwm_txagg = 1;
 static int itlwm_ht_siso = 0;
+static int itlwm_ps = 1;
 static bool itlwm_sysctl_registered = false;
 SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItlwm diagnostics");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
 
 /*
  * Spatial streams usable towards the peer. On an HT-only link a peer in
@@ -270,6 +272,7 @@ void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
     if (itlwm_sysctl_registered) {
+        sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ht_siso);
         sysctl_unregister_oid(&sysctl__debug_itlwm_txagg);
         sysctl_unregister_oid(&sysctl__debug_itlwm);
@@ -7950,7 +7953,7 @@ iwx_power_build_cmd(struct iwx_softc *sc, struct iwx_node *in,
      * authorized: dozing during the 4-way handshake can lose EAPOL frames from
      * APs that do not buffer them. iwx_link_up re-sends this once the link is up.
      */
-    if (ic->ic_opmode == IEEE80211_M_STA &&
+    if (ic->ic_opmode == IEEE80211_M_STA && itlwm_ps &&
         (!(ic->ic_flags & IEEE80211_F_RSNON) || ni->ni_port_valid)) {
         cmd->flags |= htole16(IWX_POWER_FLAGS_POWER_MANAGEMENT_ENA_MSK);
         cmd->rx_data_timeout = htole32(IWX_DEFAULT_PS_RX_DATA_TIMEOUT);
@@ -15531,6 +15534,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm);
         sysctl_register_oid(&sysctl__debug_itlwm_txagg);
         sysctl_register_oid(&sysctl__debug_itlwm_ht_siso);
+        sysctl_register_oid(&sysctl__debug_itlwm_ps);
         itlwm_sysctl_registered = true;
     }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;
