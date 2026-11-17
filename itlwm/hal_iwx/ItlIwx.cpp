@@ -129,6 +129,10 @@
 static int itlwm_txagg = 1;
 static int itlwm_ht_siso = 0;
 static int itlwm_ps = 1;
+/* AWDL isolation switches for the hotspot-loss bisect (1 = as before). */
+static int itlwm_awdl_tx = 1;           /* 0: iwx_awdl_tx sends nothing */
+static int itlwm_awdl_home_tx = 1;      /* 0: no AWDL frames on the infra data queue */
+static int itlwm_awdl_bss_promisc = 1;  /* 0: never set IN_PROMISC on the station MAC */
 static bool itlwm_sysctl_registered = false;
 
 /*
@@ -181,6 +185,9 @@ SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItl
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_tx, 0, "0: AWDL transmits nothing");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "0: no AWDL frames on the infra data queue");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_bss_promisc, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_bss_promisc, 0, "0: never promiscuous on the station MAC");
 SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
             itlwm_dpdump_handler, "I", "write 1 to IOLog data-path counters");
 
@@ -321,6 +328,9 @@ void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
     if (itlwm_sysctl_registered) {
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_tx);
         sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
         itlwm_dp_sc = NULL;
@@ -9495,6 +9505,7 @@ iwx_mac_ctxt_cmd_fill_sta(struct iwx_softc *sc, struct iwx_node *in,
 }
 
 static bool iwx_awdl_promisc_enabled();
+static bool iwx_awdl_bss_promisc_enabled();
 
 int ItlIwx::
 iwx_mac_ctxt_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action,
@@ -9553,7 +9564,7 @@ iwx_mac_ctxt_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action,
     if (ic->ic_vendor_action_handler) {
         cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_CONTROL_AND_MGMT |
                                     IWX_MAC_FILTER_IN_BEACON);
-        bool bssPromisc = assoc && iwx_awdl_promisc_enabled() &&
+        bool bssPromisc = assoc && iwx_awdl_bss_promisc_enabled() &&
             ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
         if (bssPromisc)
             cmd.filter_flags |= htole32(IWX_MAC_FILTER_IN_PROMISC);
@@ -9696,6 +9707,11 @@ static bool iwx_awdl_promisc_enabled()
         enabled = PE_parse_boot_argn("-itlawdlpromisc", &v, sizeof(v)) ? 1 : 0;
     }
     return enabled == 1;
+}
+
+static bool iwx_awdl_bss_promisc_enabled()
+{
+    return iwx_awdl_promisc_enabled() && itlwm_awdl_bss_promisc;
 }
 
 /*
@@ -9866,7 +9882,7 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
     struct iwx_softc *sc = (struct iwx_softc *)IC2IFP(ic)->if_softc;
     ItlIwx *that = container_of(sc, ItlIwx, com);
     
-    if (ic->ic_bss == NULL ||
+    if (ic->ic_bss == NULL || !itlwm_awdl_tx ||
         (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))) {
         ic->ic_awdl_tx_busy++;
         return EAGAIN;
@@ -9876,7 +9892,7 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
     if (iwx_p2p_listen_enabled() && sc->sc_p2p_queue &&
         sc->sc_aux_roc_running && ic->ic_awdl_listen_chan == chan) {
         qid = sc->sc_aux_roc_qid;
-    } else if (!sc->sc_aux_roc_running &&
+    } else if (itlwm_awdl_home_tx && !sc->sc_aux_roc_running &&
                ic->ic_state == IEEE80211_S_RUN &&
                ic->ic_bss->ni_chan &&
                ic->ic_bss->ni_chan != IEEE80211_CHAN_ANYC &&
@@ -9908,7 +9924,7 @@ iwx_awdl_sync_notify(struct ieee80211com *ic)
         return;
     if (ic->ic_state != IEEE80211_S_RUN || !ic->ic_bss)
         return;
-    bool want = iwx_awdl_promisc_enabled() &&
+    bool want = iwx_awdl_bss_promisc_enabled() &&
         ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
     if ((int)want == sc->sc_bss_awdl_promisc)
         return;
@@ -9928,7 +9944,7 @@ iwx_awdl_mac_task(void *arg)
         splx(s);
         return;
     }
-    bool want = iwx_awdl_promisc_enabled() &&
+    bool want = iwx_awdl_bss_promisc_enabled() &&
         ic->ic_awdl_want_data && ic->ic_awdl_addr_gen != 0;
     if ((int)want != sc->sc_bss_awdl_promisc) {
         if (that->iwx_mac_ctxt_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY, 1) == 0)
@@ -15624,6 +15640,9 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_ht_siso);
         sysctl_register_oid(&sysctl__debug_itlwm_ps);
         sysctl_register_oid(&sysctl__debug_itlwm_dpdump);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_tx);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         itlwm_sysctl_registered = true;
     }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;

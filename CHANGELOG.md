@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.35] — 2026-11-17
+
+### Added
+
+- Runtime switches to isolate the hotspot loss seen with awdl0 up, without editing boot-args
+  and rebooting between tests. 2.7.34 parked the P2P PHY on the infra channel (parked=1, listens
+  held 769) and still saw 100% loss, +1,187 decrypt errors, TX status 0x91 and 165 frames stuck
+  on a TX queue. All default to 1 (behaviour unchanged):
+  - `debug.itlwm.awdl_tx=0`: iwx_awdl_tx sends nothing.
+  - `debug.itlwm.awdl_home_tx=0`: AWDL frames no longer use the infra station's data queue
+    (they were hand-built, unencrypted and sent without going through net80211).
+  - `debug.itlwm.awdl_bss_promisc=0`: the station MAC never gets IN_PROMISC for AWDL. This takes
+    effect at the next MAC context update (Wi-Fi off/on). The P2P MAC filter is unchanged.
+
 ## [2.7.34] — 2026-11-17
 
 ### Fixed
