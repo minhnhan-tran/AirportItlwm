@@ -488,8 +488,8 @@ inline void decodeLegacyScan(const void *buffer, ScanRequest &out) {
  * e.g. airportd's Instant Hotspot join) can carry their SSID only in the list
  * after the channel table (0x1318..0x1550), not in the single field at 0x1c.
  * Take the first entry there: a 32-bit length (2..32), then that many
- * printable or UTF-8 bytes, then zero padding to 32 bytes. Only active scans
- * restricted to 1-4 channels are searched (the hotspot join scans one), so
+ * printable or UTF-8 bytes, then zero padding to 32 bytes. Only active and fast
+ * scans (the driver probes for both) restricted to 1-4 channels are searched (the hotspot join scans one), so
  * broadcast scans keep their wildcard probes.
  */
 inline void findListSSID(const uint8_t *p, ScanRequest &out) {
@@ -527,7 +527,7 @@ inline bool decodeScan(const void *buffer, size_t length, ScanRequest &out) {
     memcpy(out.ssid, p + 0x20, ssidLength);
     if (ssidLength)
         out.ssidOffset = 0x20;
-    else if (length >= 0x1550 && type == 1 && count >= 1 && count <= 4)    // ACTIVE
+    else if (length >= 0x1550 && (type == 1 || type == 3) && count >= 1 && count <= 4)    // ACTIVE/FAST
         findListSSID(p, out);
     memcpy(out.bssid, p + 0x14, 6);
     // Native entries are apple80211_channel: version, channel, flags (12 bytes).

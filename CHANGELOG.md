@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.21] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 4: tested on hardware, 2.7.20 still failed 14 times and logged nothing.
+  The hotspot scan reaches the driver as scan type 3 (fast), which the driver also probes for,
+  but the list SSID search and the new log line only covered type 1. Both now cover types 1 and 3
+  (still limited to 1-4 channels). Not yet verified on hardware.
+
 ## [2.7.20] — 2026-11-17
 
 ### Fixed

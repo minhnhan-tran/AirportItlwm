@@ -246,7 +246,7 @@ IOReturn AirportItlwmSkywalkInterface::beginWCLScan(apple80211ScanRequest *reque
     AirportWCL::ScanRequest scan;
     if (!AirportWCL::decodeScan(request, 0x1550, scan))
         return kIOReturnBadArgument;
-    if (scan.ssidLength || scan.type == APPLE80211_SCAN_TYPE_ACTIVE) {
+    if (scan.ssidLength || (scan.type != APPLE80211_SCAN_TYPE_PASSIVE && scan.channelCount >= 1 && scan.channelCount <= 4)) {
         // IOLog, not XYLog: kprintf output never reaches `log show`.
         const uint8_t *raw = reinterpret_cast<const uint8_t *>(request);
         char ssid[33] = {};
