@@ -100,7 +100,7 @@ void AirportItlwmSkywalkInterface::stopWCL()
         scanSource->cancelTimeout();
     scanPending = joinPending = false;
     joinDeferred = scanDeferred = false;
-    legacyScanPending = legacyScanOnly = false;
+    legacyScanPending = legacyScanOnly = legacyScanStarting = false;
     explicit_bzero(&deferredJoin, sizeof(deferredJoin));
     if (fHalService) {
         ieee80211com *ic = fHalService->get80211Controller();
@@ -390,8 +390,14 @@ void AirportItlwmSkywalkInterface::finishWCLScan(IOReturn status)
     clearWCLScanResults();
     if (notifyWCL)
         instance->postMessage(this, AirportWCL::ScanDone, &status, sizeof(status), true);
-    if (legacyScanPending)
-        finishLegacyScan();
+    if (legacyScanPending) {
+        if (legacyScanStarting) {
+            // Still inside the SCAN_REQ ioctl: answer once Apple80211Scan waits.
+            scanSource->setTimeoutMS(100);
+            scanSource->enable();
+        } else
+            finishLegacyScan();
+    }
 }
 
 void AirportItlwmSkywalkInterface::completeWCLScan()
@@ -428,7 +434,9 @@ IOReturn AirportItlwmSkywalkInterface::beginLegacyScan(const void *request)
         return kIOReturnSuccess;    // The end of the scan in progress answers it.
     if (scan.type != APPLE80211_SCAN_TYPE_FAST) {
         legacyScanOnly = true;
+        legacyScanStarting = true;
         IOReturn ret = startWCLScan(scan);
+        legacyScanStarting = false;
         if (ret == kIOReturnSuccess) {
             deferredScan = scan;
             clearWCLScanResults();

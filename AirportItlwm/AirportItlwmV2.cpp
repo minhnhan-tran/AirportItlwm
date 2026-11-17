@@ -1064,7 +1064,7 @@ getCARD_CAPABILITIES(OSObject *object,
     // before it reaches the driver unless this is set. airportd's Instant Hotspot
     // join scans that way, so without it a hotspot woken over Bluetooth is never found.
     cd->capabilities[2] |= 0x40;
-#if __IO80211_TARGET >= __MAC_26_0
+#if __IO80211_TARGET != __MAC_15_2
     // Capability 73 (byte 9, 0x02): without it Apple80211Scan always sends
     // SCAN_REQ_MULTIPLE (86), which the WCL interface has no handler for (it
     // fails with EOPNOTSUPP). With it, the framework sends SCAN_REQ (10) in its

@@ -957,7 +957,7 @@ getLINK_CHANGED_EVENT_DATA(struct apple80211_link_changed_event_data *ed)
 IOReturn AirportItlwmSkywalkInterface::
 setSCAN_REQ(struct apple80211_scan_data *sd)
 {
-#if defined(AIRPORT_WCL) && __IO80211_TARGET >= __MAC_26_0
+#if defined(AIRPORT_WCL) && __IO80211_TARGET != __MAC_15_2
     if (!sd || fScanResultWrapping)
         return 22;
     return beginLegacyScan(sd);

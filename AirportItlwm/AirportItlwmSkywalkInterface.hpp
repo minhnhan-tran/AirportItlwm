@@ -474,6 +474,7 @@ private:
     // not sent ScanDone).
     bool legacyScanPending = false;
     bool legacyScanOnly = false;
+    bool legacyScanStarting = false;
     AirportWCL::ScanRequest deferredScan = {};
     // The latest result per BSS of the scan request in progress, posted again
     // just before ScanDone (see finishWCLScan).
