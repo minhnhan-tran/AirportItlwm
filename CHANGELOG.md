@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.29] — 2026-11-17
+
+### Added
+
+- Instant Hotspot join, part 9. The 2.7.28 test ruled out the private MAC address: the firmware
+  MAC context and all 115 association responses used the same address (26:40:47:da:f3:eb).
+  After association the hotspot still sent only encrypted multicast frames, never EAPOL msg 1/4.
+  macOS's later fallback join failed too ("Failed to enable Personal Hotspot"). Each
+  (Re)Association Request is now logged as `AirportItlwm: assoc_req`: a summary (capinfo,
+  AKMs/ciphers, MFP, PMKID, HT/VHT/HE) plus the full IEs in hex, followed by the BSS RSN IE as
+  `bss rsnie`. Each response is logged as `AirportItlwm: assoc_resp` (status, AID and IEs), so
+  the hotspot join can be compared byte by byte with a home WPA2 join that works.
+
 ## [2.7.28] — 2026-11-17
 
 ### Added

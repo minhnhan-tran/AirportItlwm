@@ -1511,6 +1511,27 @@ ieee80211_get_deauth(struct ieee80211com *ic, struct ieee80211_node *ni,
 	return m;
 }
 
+/* Join diagnostics (no keys in these IEs). */
+static void
+ieee80211_log_hex(const char *tag, const u_int8_t *p, size_t l, size_t max)
+{
+    static const char hx[] = "0123456789abcdef";
+    char buf[2 * 96 + 1];
+    size_t off, i, n;
+
+    if (l > max)
+        l = max;
+    for (off = 0; off < l; off += 96) {
+        n = l - off < 96 ? l - off : 96;
+        for (i = 0; i < n; i++) {
+            buf[2 * i] = hx[p[off + i] >> 4];
+            buf[2 * i + 1] = hx[p[off + i] & 0xf];
+        }
+        buf[2 * n] = '\0';
+        IOLog("AirportItlwm: %s +%zu %s\n", tag, off, buf);
+    }
+}
+
 /*-
  * (Re)Association request frame format:
  * [2]   Capability information
@@ -1622,6 +1643,23 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
         !!(ic->ic_flags & IEEE80211_F_HTON),
         !!vht_on, ni->ni_he_requested, l);
 #endif
+
+    /*
+     * Join diagnostics: the (Re)Association Request IEs as sent and the BSS
+     * RSN IE they answer, so a join the AP accepts without starting the
+     * 4-way handshake can be compared with one that works.
+     */
+    if (ic->ic_opmode == IEEE80211_M_STA) {
+        const u_int8_t *body = mtod(m, const u_int8_t *);
+        IOLog("AirportItlwm: assoc_req capinfo=0x%04x len=%zu rsnon=%d akms=0x%x ciphers=0x%x group=0x%x mfp=%d pmkid=%d ht=%d vht=%d he=%d\n",
+              (unsigned)capinfo, l, !!(ic->ic_flags & IEEE80211_F_RSNON), ni->ni_rsnakms,
+              ni->ni_rsnciphers, ni->ni_rsngroupcipher, !!(ic->ic_caps & IEEE80211_C_MFP),
+              !!(ni->ni_flags & IEEE80211_NODE_PMKID), !!(ic->ic_flags & IEEE80211_F_HTON),
+              !!vht_on, ni->ni_he_requested);
+        ieee80211_log_hex("assoc_req", body, l, 512);
+        if (ni->ni_rsnie != NULL)
+            ieee80211_log_hex("bss rsnie", ni->ni_rsnie, 2 + ni->ni_rsnie[1], 96);
+    }
 
 	return m;
 }
