@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.28] — 2026-11-17
+
+### Added
+
+- Instant Hotspot join, part 8. The 2.7.27 test kept power save off, but the hotspot still sent
+  nothing addressed to the Mac after association: only the association response and encrypted
+  broadcast frames, so EAPOL msg 1/4 never arrived. Joins to a normal WPA2 network work. To check
+  for a mismatch with the randomized private MAC address, `AirportItlwm: pre-auth rx` now logs the
+  receiver address and `ic_myaddr`, and the new `AirportItlwm: auth` line logs the address given to
+  the firmware MAC context and the BSSID. The addresses are printed byte by byte because
+  `ether_sprintf` returns one static buffer.
+
 ## [2.7.27] — 2026-11-17
 
 ### Fixed

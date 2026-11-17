@@ -6210,10 +6210,14 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
                         ethertype = (fp[hl + 6] << 8) | fp[hl + 7];
                 }
                 sc->sc_preauth_rx_logged++;
-                IOLog("AirportItlwm: pre-auth rx #%d fc=0x%02x%02x seq=%u len=%u ethertype=0x%04x to_me=%d state=%d\n",
+                /* Explicit bytes: ether_sprintf returns one static buffer. */
+                const uint8_t *a1 = fh->i_addr1, *me = ic->ic_myaddr;
+                IOLog("AirportItlwm: pre-auth rx #%d fc=0x%02x%02x seq=%u len=%u ethertype=0x%04x to_me=%d state=%d "
+                      "a1=%02x:%02x:%02x:%02x:%02x:%02x me=%02x:%02x:%02x:%02x:%02x:%02x\n",
                       sc->sc_preauth_rx_logged, fh->i_fc[0], fh->i_fc[1],
                       le16toh(*(const uint16_t *)fh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT, mlen, ethertype,
-                      IEEE80211_ADDR_EQ(fh->i_addr1, ic->ic_myaddr), ic->ic_state);
+                      IEEE80211_ADDR_EQ(fh->i_addr1, ic->ic_myaddr), ic->ic_state,
+                      a1[0], a1[1], a1[2], a1[3], a1[4], a1[5], me[0], me[1], me[2], me[3], me[4], me[5]);
             }
         }
     }
@@ -11125,6 +11129,13 @@ iwx_auth(struct iwx_softc *sc)
     struct iwx_node *in = (struct iwx_node *)ic->ic_bss;
     uint32_t duration;
     int generation = sc->sc_generation, err = 0;
+    
+    /* Join diagnostics: the MAC context's node_addr is ic_myaddr. */
+    {
+        const uint8_t *me = ic->ic_myaddr, *bs = in->in_ni.ni_bssid;
+        IOLog("AirportItlwm: auth me=%02x:%02x:%02x:%02x:%02x:%02x bssid=%02x:%02x:%02x:%02x:%02x:%02x\n",
+              me[0], me[1], me[2], me[3], me[4], me[5], bs[0], bs[1], bs[2], bs[3], bs[4], bs[5]);
+    }
     
     splassert(IPL_NET);
     
