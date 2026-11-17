@@ -4667,6 +4667,11 @@ iwx_mac_ctxt_task(void *arg)
         return;
     }
     
+    /* Power save follows the port state (see iwx_power_build_cmd). */
+    err = that->iwx_power_mac_update_mode(sc, in);
+    if (err)
+        XYLog("%s: failed to update power mode (%d)\n", DEVNAME(sc), err);
+    
     if (!isset(sc->sc_enabled_capa, IWX_UCODE_TLV_CAPA_SESSION_PROT_CMD))
         that->iwx_unprotect_session(sc, in);
     
@@ -4762,6 +4767,17 @@ iwx_updateedca(struct ieee80211com *ic)
     struct iwx_softc *sc = (struct iwx_softc *)ic->ic_softc;
     ItlIwx *that = container_of(sc, ItlIwx, com);
     
+    if (ic->ic_state == IEEE80211_S_RUN && (sc->sc_flags & IWX_FLAG_STA_ACTIVE))
+        that->iwx_add_task(sc, systq, &sc->mac_ctxt_task);
+}
+
+void ItlIwx::
+iwx_link_up(struct ieee80211com *ic)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)ic->ic_softc;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+    
+    /* Port authorized: iwx_mac_ctxt_task enables power save now. */
     if (ic->ic_state == IEEE80211_S_RUN && (sc->sc_flags & IWX_FLAG_STA_ACTIVE))
         that->iwx_add_task(sc, systq, &sc->mac_ctxt_task);
 }
@@ -6165,6 +6181,41 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
         !(desc->status & htole16(IWX_RX_MPDU_RES_STATUS_OVERRUN_OK))) {
         mbuf_freem(m);
         return; /* drop */
+    }
+    
+    /*
+     * Join diagnostics: until the port is authorized, log what the BSS sends
+     * besides beacons and probe responses (EAPOL msg 1/4 is expected first).
+     */
+    if (ic->ic_opmode == IEEE80211_M_STA && ic->ic_bss != NULL &&
+        (ic->ic_flags & IEEE80211_F_RSNON) && !ic->ic_bss->ni_port_valid &&
+        (ic->ic_state == IEEE80211_S_ASSOC || ic->ic_state == IEEE80211_S_RUN) &&
+        sc->sc_preauth_rx_logged < 16 && maxlen > desc_size) {
+        uint32_t mlen = le16toh(desc->mpdu_len);
+        const uint8_t *fp = (const uint8_t *)pktdata + desc_size;
+        const struct ieee80211_frame *fh = (const struct ieee80211_frame *)fp;
+        if (mlen >= sizeof(struct ieee80211_frame) && mlen <= maxlen - desc_size &&
+            IEEE80211_ADDR_EQ(fh->i_addr2, ic->ic_bss->ni_bssid)) {
+            uint8_t ft = fh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
+            uint8_t fst = fh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+            if (ft != IEEE80211_FC0_TYPE_CTL &&
+                !(ft == IEEE80211_FC0_TYPE_MGT && (fst == IEEE80211_FC0_SUBTYPE_BEACON ||
+                                                   fst == IEEE80211_FC0_SUBTYPE_PROBE_RESP))) {
+                unsigned ethertype = 0;
+                if (ft == IEEE80211_FC0_TYPE_DATA && !(fh->i_fc[1] & IEEE80211_FC1_PROTECTED)) {
+                    u_int hl = ieee80211_get_hdrlen(fh);
+                    if (desc->mac_flags2 & IWX_RX_MPDU_MFLG2_PAD)
+                        hl += 2;
+                    if (mlen >= hl + 8 && fp[hl] == 0xaa && fp[hl + 1] == 0xaa)
+                        ethertype = (fp[hl + 6] << 8) | fp[hl + 7];
+                }
+                sc->sc_preauth_rx_logged++;
+                IOLog("AirportItlwm: pre-auth rx #%d fc=0x%02x%02x seq=%u len=%u ethertype=0x%04x to_me=%d state=%d\n",
+                      sc->sc_preauth_rx_logged, fh->i_fc[0], fh->i_fc[1],
+                      le16toh(*(const uint16_t *)fh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT, mlen, ethertype,
+                      IEEE80211_ADDR_EQ(fh->i_addr1, ic->ic_myaddr), ic->ic_state);
+            }
+        }
     }
     
     /*
@@ -7890,7 +7941,13 @@ iwx_power_build_cmd(struct iwx_softc *sc, struct iwx_node *in,
      * the platform out of package C10 while Wi-Fi is connected.
      * The flags sent are published on the PCI device as "ItlwmPMFlags" for verification.
      */
-    if (ic->ic_opmode == IEEE80211_M_STA) {
+    /*
+     * Like mac80211 (ieee80211_powersave_allowed), not before the port is
+     * authorized: dozing during the 4-way handshake can lose EAPOL frames from
+     * APs that do not buffer them. iwx_link_up re-sends this once the link is up.
+     */
+    if (ic->ic_opmode == IEEE80211_M_STA &&
+        (!(ic->ic_flags & IEEE80211_F_RSNON) || ni->ni_port_valid)) {
         cmd->flags |= htole16(IWX_POWER_FLAGS_POWER_MANAGEMENT_ENA_MSK);
         cmd->rx_data_timeout = htole32(IWX_DEFAULT_PS_RX_DATA_TIMEOUT);
         cmd->tx_data_timeout = htole32(IWX_DEFAULT_PS_TX_DATA_TIMEOUT);
@@ -7916,6 +7973,8 @@ iwx_power_mac_update_mode(struct iwx_softc *sc, struct iwx_node *in)
     
     ba_enable = !!(cmd.flags &
                    htole16(IWX_POWER_FLAGS_POWER_MANAGEMENT_ENA_MSK));
+    IOLog("AirportItlwm: power mode PM=%d port_valid=%d flags=0x%x\n", ba_enable,
+          in->in_ni.ni_port_valid, le16toh(cmd.flags));
     return iwx_update_beacon_abort(sc, in, ba_enable);
 }
 
@@ -11061,6 +11120,7 @@ int ItlIwx::
 iwx_auth(struct iwx_softc *sc)
 {
     XYLog("%s\n", __FUNCTION__);
+    sc->sc_preauth_rx_logged = 0;
     struct ieee80211com *ic = &sc->sc_ic;
     struct iwx_node *in = (struct iwx_node *)ic->ic_bss;
     uint32_t duration;
@@ -15452,6 +15512,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     ic->ic_updateslot = iwx_updateslot;
     ic->ic_updateedca = iwx_updateedca;
     ic->ic_updatedtim = iwx_updatedtim;
+    ic->ic_link_up = iwx_link_up;
     ic->ic_ampdu_rx_start = iwx_ampdu_rx_start;
     ic->ic_ampdu_rx_stop = iwx_ampdu_rx_stop;
     ic->ic_ampdu_tx_start = iwx_ampdu_tx_start;

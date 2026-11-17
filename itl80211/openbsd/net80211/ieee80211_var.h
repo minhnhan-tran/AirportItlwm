@@ -419,6 +419,8 @@ struct ieee80211com {
 	void			(*ic_updateslot)(struct ieee80211com *);
 	void			(*ic_updateedca)(struct ieee80211com *);
     void            (*ic_updatedtim)(struct ieee80211com *);
+    /* STA link went up (port authorized, or RUN on an open network); optional. */
+    void            (*ic_link_up)(struct ieee80211com *);
 	void			(*ic_set_tim)(struct ieee80211com *, int, int);
 	int			(*ic_set_key)(struct ieee80211com *,
 				    struct ieee80211_node *,

@@ -1774,6 +1774,8 @@ ieee80211_set_link_state(struct ieee80211com *ic, int nstate)
         if (link_state == LINK_STATE_UP) {
             XYLog("%s LINK_STATE_IS_UP\n", __FUNCTION__);
             ifp->controller->setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, ifp->controller->getCurrentMedium());
+            if (ic->ic_opmode == IEEE80211_M_STA && ic->ic_link_up != NULL)
+                ic->ic_link_up(ic);
         } else {
             XYLog("%s LINK_STATE_IS_DOWN\n", __FUNCTION__);
             ifp->controller->setLinkStatus(kIONetworkLinkValid);

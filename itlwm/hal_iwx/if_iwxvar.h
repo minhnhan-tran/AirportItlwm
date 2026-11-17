@@ -797,6 +797,7 @@ struct iwx_softc {
 	int sc_noise;
 
     int sc_pm_support;
+    int sc_preauth_rx_logged;   /* join diagnostics, reset in iwx_auth */
 	int sc_ltr_enabled;
 
 	int sc_integrated;

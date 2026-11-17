@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.26] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 7. On 2.7.25 the click finds the hidden hotspot and associates
+  (channel 36, ASSOC -> RUN in 7 ms), but the 4-way handshake never starts.
+  `ieee80211_eapol_key_input` never runs, and airportd deauthenticates after 10 s. iwx enabled
+  802.11 power save (POWER_MANAGEMENT_ENA) on entering RUN, before the handshake, so the radio
+  could doze while the AP sent EAPOL msg 1/4. Linux mac80211 allows power save only once the
+  port is authorized, and iwx now does the same. Power save turns on when the link goes up,
+  through a new net80211 `ic_link_up` hook that runs `iwx_mac_ctxt_task`, which now also
+  re-sends the power table. Open networks are unchanged. Not yet confirmed as the cause.
+
+### Added
+
+- `AirportItlwm: pre-auth rx` logs up to 16 frames per association that the BSS sends before
+  the port is authorized (beacons and probe responses excluded), with frame control, sequence,
+  length and ethertype, to show whether EAPOL arrives at all. `AirportItlwm: power mode` logs
+  each power-table update.
+
 ## [2.7.25] — 2026-11-17
 
 ### Fixed
