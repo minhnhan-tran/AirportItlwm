@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Apple80211Scan` refuses every scan that carries an SSID list with -3903 before the driver
   sees it. airportd's tether join scans that way, so the Mac only rejoined when auto-join
   happened to see the hotspot beaconing. The WCL path only ever reported WME|SGI40|SGI20
-  in byte 2; the legacy path, like upstream, reports 0xFF, which includes this bit. Not yet
-  verified on hardware.
+  in byte 2; the legacy path, like upstream, reports 0xFF, which includes this bit. Tested on
+  hardware: not enough on its own. The scan now reaches the kernel as `SCAN_REQ_MULTIPLE`,
+  which the WCL interface rejects with 102 (EOPNOTSUPP).
 
 ## [2.7.17] — 2026-11-16
 
