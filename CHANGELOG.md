@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.22] — 2026-11-17
+
+### Changed
+
+- Scan diagnostics for the Instant Hotspot join: every WCL scan request is now logged with IOLog,
+  including its channel list (`AirportItlwm: WCL scan ... channels=N [36,149,...]`). So are
+  undecodable requests that are rejected. The legacy `SCAN_REQ` path (`beginLegacyScan`) used
+  XYLog, which is kprintf and never reaches `log show`. It now uses IOLog
+  (`AirportItlwm: legacy scan ...`) with the SSID and channel list.
+
+### Notes
+
+- Tested on hardware, 2.7.21 still failed to join. The click-time single-channel scans produced
+  no `WCL scan` line, while CoreWLAN directed scans carry the SSID in the normal field at 0x20.
+  The 2.7.20/2.7.21 guess that the SSID sits in a list after the channel table was never
+  confirmed. That lookup only runs when the field at 0x20 is empty, so it is harmless.
+
 ## [2.7.21] — 2026-11-17
 
 ### Fixed

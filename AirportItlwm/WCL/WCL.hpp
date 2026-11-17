@@ -438,6 +438,24 @@ struct ScanRequest {
     uint32_t ssidOffset;    // Where decodeScan found the SSID (diagnostics).
 };
 
+// "36,149" from a ScanRequest channel bitmap (diagnostics); truncated with "..." if needed.
+inline void formatChannels(const uint8_t *channels, char *out, size_t size) {
+    size_t used = 0;
+    if (size)
+        out[0] = 0;
+    for (unsigned ch = 0; ch < 256 && size; ++ch) {
+        if (!(channels[ch / 8] & (1U << (ch % 8))))
+            continue;
+        int n = snprintf(out + used, size - used, used ? ",%u" : "%u", ch);
+        if (n < 0 || used + n >= size) {
+            if (size >= 4)
+                strlcpy(out + size - 4, "...", 4);
+            return;
+        }
+        used += n;
+    }
+}
+
 inline bool scanChannelSelected(const uint8_t *channels, bool restricted, unsigned channel) {
     return !restricted || (channel < 256 && (channels[channel / 8] & (1U << (channel % 8))));
 }

@@ -244,17 +244,22 @@ IOReturn AirportItlwmSkywalkInterface::setWCL_LEAVE_NETWORK(apple80211_leave_net
 IOReturn AirportItlwmSkywalkInterface::beginWCLScan(apple80211ScanRequest *request)
 {
     AirportWCL::ScanRequest scan;
-    if (!AirportWCL::decodeScan(request, 0x1550, scan))
+    if (!AirportWCL::decodeScan(request, 0x1550, scan)) {
+        IOLog("AirportItlwm: WCL scan rejected (undecodable request)\n");
         return kIOReturnBadArgument;
-    if (scan.ssidLength || (scan.type != APPLE80211_SCAN_TYPE_PASSIVE && scan.channelCount >= 1 && scan.channelCount <= 4)) {
+    }
+    {
+        // Every scan, so the hotspot join's entry point and channels show up.
         // IOLog, not XYLog: kprintf output never reaches `log show`.
         const uint8_t *raw = reinterpret_cast<const uint8_t *>(request);
         char ssid[33] = {};
+        char channels[96];
         memcpy(ssid, scan.ssid, scan.ssidLength);
+        AirportWCL::formatChannels(scan.channels, channels, sizeof(channels));
         const uint8_t *t = raw + 0x1318;
-        IOLog("AirportItlwm: WCL scan id=%u type=%u ssid_len=%u@0x%x ssid=%s channels=%u "
+        IOLog("AirportItlwm: WCL scan id=%u type=%u ssid_len=%u@0x%x ssid=%s channels=%u [%s] "
               "@1318: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
-              scan.identifier, scan.type, scan.ssidLength, scan.ssidOffset, ssid, scan.channelCount,
+              scan.identifier, scan.type, scan.ssidLength, scan.ssidOffset, ssid, scan.channelCount, channels,
               AirportWCL::read32(t), AirportWCL::read32(t + 4), AirportWCL::read32(t + 8),
               AirportWCL::read32(t + 12), AirportWCL::read32(t + 16), AirportWCL::read32(t + 20),
               AirportWCL::read32(t + 24), AirportWCL::read32(t + 28), AirportWCL::read32(t + 32),
@@ -437,8 +442,12 @@ IOReturn AirportItlwmSkywalkInterface::beginLegacyScan(const void *request)
 {
     AirportWCL::ScanRequest scan;
     AirportWCL::decodeLegacyScan(request, scan);
-    XYLog("%s type=%u ssid_len=%u channels=%u wcl_pending=%d legacy_pending=%d\n", __FUNCTION__,
-          scan.type, scan.ssidLength, scan.channelCount, scanPending, legacyScanPending);
+    char ssid[33] = {};
+    char channels[96];
+    memcpy(ssid, scan.ssid, scan.ssidLength);
+    AirportWCL::formatChannels(scan.channels, channels, sizeof(channels));
+    IOLog("AirportItlwm: legacy scan type=%u ssid_len=%u ssid=%s channels=%u [%s] wcl_pending=%d legacy_pending=%d\n",
+          scan.type, scan.ssidLength, ssid, scan.channelCount, channels, scanPending, legacyScanPending);
     if (wclStopping)
         return kIOReturnNotReady;
     if (legacyScanPending)
@@ -457,7 +466,7 @@ IOReturn AirportItlwmSkywalkInterface::beginLegacyScan(const void *request)
             return kIOReturnSuccess;
         }
         legacyScanOnly = false;
-        XYLog("%s scan not started (0x%x), answering from the cache\n", __FUNCTION__, ret);
+        IOLog("AirportItlwm: legacy scan not started (0x%x), answering from the cache\n", ret);
     }
     // Answer after 100 ms, once Apple80211Scan is waiting for the event.
     scanSource->setTimeoutMS(100);
