@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.20] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 3: on Tahoe, IO80211ScanManager turns Apple80211Scan's `SCAN_REQ`
+  into an ordinary WCL scan, so the 2.7.19 `setSCAN_REQ` path is never reached. With
+  capability 73 the hotspot scans now run (active, channel 36), but they found only the other
+  APs there. These requests carry the SSID only in the list after the channel table, while
+  `decodeScan` read only the single SSID field. The probes were therefore wildcard, which a
+  hidden hotspot ignores. For active scans where that field is empty, the SSID is now taken from
+  the first list entry: a length of 2-32, then that many printable/UTF-8 bytes, then zero
+  padding. Broadcast scans are never searched.
+
+### Changed
+
+- Active or directed WCL scans are logged with IOLog (`AirportItlwm: WCL scan ...`: SSID and
+  where it was found, channel count, the first 12 words after the channel table), so the
+  layout can be checked in `log show`. Not yet verified on hardware.
+
 ## [2.7.19] — 2026-11-17
 
 ### Fixed

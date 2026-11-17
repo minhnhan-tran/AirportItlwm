@@ -435,6 +435,7 @@ struct ScanRequest {
     uint8_t bssid[6];
     uint32_t channelCount;
     uint8_t channels[32];
+    uint32_t ssidOffset;    // Where decodeScan found the SSID (diagnostics).
 };
 
 inline bool scanChannelSelected(const uint8_t *channels, bool restricted, unsigned channel) {
@@ -482,6 +483,32 @@ inline void decodeLegacyScan(const void *buffer, ScanRequest &out) {
     }
 }
 
+/*
+ * Directed scans that IO80211ScanManager builds from SCAN_REQ (Apple80211Scan,
+ * e.g. airportd's Instant Hotspot join) can carry their SSID only in the list
+ * after the channel table (0x1318..0x1550), not in the single field at 0x1c.
+ * Take the first entry there: a 32-bit length (2..32), then that many
+ * printable or UTF-8 bytes, then zero padding to 32 bytes. Only active scans
+ * are searched, so broadcast scans can never pick up a stray SSID.
+ */
+inline void findListSSID(const uint8_t *p, ScanRequest &out) {
+    for (size_t off = 0x1318; off + 4 + 32 <= 0x1550; off += 4) {
+        uint32_t len = read32(p + off);
+        if (len < 2 || len > 32)
+            continue;
+        const uint8_t *ssid = p + off + 4;
+        bool ok = true;
+        for (uint32_t k = 0; k < 32 && ok; ++k)
+            ok = k < len ? (ssid[k] >= 0x20 && ssid[k] != 0x7f) : ssid[k] == 0;
+        if (!ok)
+            continue;
+        out.ssidLength = len;
+        out.ssidOffset = uint32_t(off + 4);
+        memcpy(out.ssid, ssid, len);
+        return;
+    }
+}
+
 inline bool decodeScan(const void *buffer, size_t length, ScanRequest &out) {
     if (!buffer || length < 0x58)
         return false;
@@ -497,6 +524,10 @@ inline bool decodeScan(const void *buffer, size_t length, ScanRequest &out) {
     out.ssidLength = ssidLength;
     out.channelCount = count;
     memcpy(out.ssid, p + 0x20, ssidLength);
+    if (ssidLength)
+        out.ssidOffset = 0x20;
+    else if (length >= 0x1550 && type == 1)    // APPLE80211_SCAN_TYPE_ACTIVE
+        findListSSID(p, out);
     memcpy(out.bssid, p + 0x14, 6);
     // Native entries are apple80211_channel: version, channel, flags (12 bytes).
     for (uint32_t i = 0; i < count; ++i) {

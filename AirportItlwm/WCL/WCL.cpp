@@ -246,6 +246,20 @@ IOReturn AirportItlwmSkywalkInterface::beginWCLScan(apple80211ScanRequest *reque
     AirportWCL::ScanRequest scan;
     if (!AirportWCL::decodeScan(request, 0x1550, scan))
         return kIOReturnBadArgument;
+    if (scan.ssidLength || scan.type == APPLE80211_SCAN_TYPE_ACTIVE) {
+        // IOLog, not XYLog: kprintf output never reaches `log show`.
+        const uint8_t *raw = reinterpret_cast<const uint8_t *>(request);
+        char ssid[33] = {};
+        memcpy(ssid, scan.ssid, scan.ssidLength);
+        const uint8_t *t = raw + 0x1318;
+        IOLog("AirportItlwm: WCL scan id=%u type=%u ssid_len=%u@0x%x ssid=%s channels=%u "
+              "@1318: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
+              scan.identifier, scan.type, scan.ssidLength, scan.ssidOffset, ssid, scan.channelCount,
+              AirportWCL::read32(t), AirportWCL::read32(t + 4), AirportWCL::read32(t + 8),
+              AirportWCL::read32(t + 12), AirportWCL::read32(t + 16), AirportWCL::read32(t + 20),
+              AirportWCL::read32(t + 24), AirportWCL::read32(t + 28), AirportWCL::read32(t + 32),
+              AirportWCL::read32(t + 36), AirportWCL::read32(t + 40), AirportWCL::read32(t + 44));
+    }
     ieee80211com *ic = fHalService->get80211Controller();
     /*
      * The firmware restarts after wake and again to apply a private MAC
