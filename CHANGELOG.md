@@ -12,11 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Instant Hotspot join, part 5. 2.7.22 logs show the click-time scan is a WCL scan with the SSID
   (found at 0x1324) on channel 36 only. The iPhone was there the whole time, sending beacons with
   a hidden SSID (`ssid[0]`, -50 dBm), but no probe response ever came back. The iwx scan
-  (`iwx_umac_scan_fill_channels`) never sends probes on channels the NVM marks passive. With
-  LAR, that profile marks 5 GHz passive, while the firmware enforces no-IR itself (passive dwell
-  until it hears a beacon), which Linux iwlwifi and OpenBSD iwx rely on. So the directed probe
-  that makes a hidden hotspot answer was never sent. Directed WCL scans now probe passive
-  non-DFS channels when LAR is enabled. DFS channels and broadcast scans are unchanged.
+  (`iwx_umac_scan_fill_channels`) never sends probes on channels the NVM marks passive. The
+  likely cause is that with LAR, that profile marks 5 GHz passive, while the firmware enforces
+  no-IR itself (passive dwell until it hears a beacon), which Linux iwlwifi and OpenBSD iwx rely
+  on. That would mean the directed probe that makes a hidden hotspot answer was never sent.
+  Directed WCL scans now probe passive non-DFS channels when LAR is enabled. DFS channels and
+  broadcast scans are unchanged. Not yet verified on hardware: the new `passive=[...]` log field
+  will show whether channel 36 was actually marked passive.
 
 ### Changed
 
