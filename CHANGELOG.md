@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.25] — 2026-11-17
+
+### Fixed
+
+- 2.7.24 also stopped directed WCL scans from probing passive 5 GHz channels during background
+  scans, which 2.7.23 allowed. Clicking the hotspot while connected to another Wi-Fi network
+  would then fail to match it again. The background-scan exclusion now applies only to
+  net80211's own roaming scans.
+
 ## [2.7.24] — 2026-11-17
 
 ### Fixed

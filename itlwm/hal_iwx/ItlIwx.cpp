@@ -8238,7 +8238,8 @@ iwx_umac_scan_fill_channels(struct iwx_softc *sc,
          * the WCL scan and net80211's join scan (ic_des_essid) must probe the
          * NVM-passive 5 GHz channels. See AirportWCL::probePassiveChannel.
          */
-        if (passive && AirportWCL::probePassiveChannel(sc->sc_nvm.lar_enabled, bgscan,
+        if (passive && AirportWCL::probePassiveChannel(sc->sc_nvm.lar_enabled,
+                ic->ic_wcl_scan_requested, bgscan,
                 (ic->ic_wcl_scan_requested ? ic->ic_wcl_scan_ssid_length :
                  ic->ic_des_esslen) != 0,
                 IEEE80211_IS_CHAN_5GHZ(c), channel_num))

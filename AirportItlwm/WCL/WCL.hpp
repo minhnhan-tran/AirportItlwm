@@ -339,11 +339,13 @@ inline bool scanUsesProbes(bool requested, bool activeRequest) {
 // With LAR the NVM profile marks every 5 GHz channel passive (MCC "00"), while
 // the firmware enforces no-IR itself (passive dwell until it hears a beacon),
 // as Linux iwlwifi and OpenBSD iwx rely on. A directed scan may therefore ask
-// it to probe those channels. The NVM map flags no channel DFS, so the 5 GHz
-// DFS range (52-144) stays passive here explicitly.
-inline bool probePassiveChannel(bool larEnabled, bool bgscan, bool directed,
-                                bool is5GHz, unsigned channel) {
-    return larEnabled && !bgscan && directed && is5GHz &&
+// it to probe those channels: any WCL scan carrying an SSID (also while
+// associated), and net80211's join scan, but not its background roaming scans.
+// The NVM map flags no channel DFS, so the 5 GHz DFS range (52-144) stays
+// passive here explicitly.
+inline bool probePassiveChannel(bool larEnabled, bool wclScan, bool bgscan,
+                                bool directed, bool is5GHz, unsigned channel) {
+    return larEnabled && directed && (wclScan || !bgscan) && is5GHz &&
         !(channel >= 52 && channel <= 144);
 }
 
