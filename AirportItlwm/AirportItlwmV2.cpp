@@ -1059,6 +1059,11 @@ getCARD_CAPABILITIES(OSObject *object,
     cd->capabilities[2] = (1 << (APPLE80211_CAP_WME - 16)) |
         (1 << (APPLE80211_CAP_SHORT_GI_40MHZ - 16)) |
         (1 << (APPLE80211_CAP_SHORT_GI_20MHZ - 16));
+    // Capability 22 (byte 2, 0x40): IO80211.framework's Apple80211Scan and
+    // Apple80211ScanDynamic fail any scan that carries an SSID list with -3903
+    // before it reaches the driver unless this is set. airportd's Instant Hotspot
+    // join scans that way, so without it a hotspot woken over Bluetooth is never found.
+    cd->capabilities[2] |= 0x40;
     // Tahoe WCLDeviceConfiguration::isHeSupported reads byte 17, bit 7.
     // WCL uses this capability together with the BSS HE IE for PHY reporting.
     if (caps & IEEE80211_C_HE)

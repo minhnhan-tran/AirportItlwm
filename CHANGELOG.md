@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.18] — 2026-11-17
+
+### Fixed
+
+- Reconnecting to an iPhone hotspot from the Wi-Fi menu (Instant Hotspot) after leaving it:
+  the card now reports capability 22 (byte 2, 0x40). Without it IO80211.framework's
+  `Apple80211Scan` refuses every scan that carries an SSID list with -3903 before the driver
+  sees it. airportd's tether join scans that way, so the Mac only rejoined when auto-join
+  happened to see the hotspot beaconing. The WCL path lost this bit in 2.4.6 when byte 2
+  was narrowed from 0xFF to WME|SGI40|SGI20. Not yet verified on hardware.
+
 ## [2.7.17] — 2026-11-16
 
 ### Changed
@@ -13,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A-MPDU length instead of a fixed 64K, and an MPDU start spacing of at least the peer's
   requirement (VHT/HE links already used the peer's length). Suspected cause of the iPhone
   2.4 GHz hotspot stall (associated, data frames unacknowledged, then LMAC assert 0x91 with
-  the TID 0 aggregation queue never drained); not yet verified on hardware.
+  the TID 0 aggregation queue never drained); verified on hardware (channel 6: 0% ping loss,
+  ~10 MB/s, no firmware errors).
 - iwx, HT-only links: a peer in static SM power save is treated as single-stream (no 2-stream
   HT rates, SISO station flag), as iwlwifi does.
 
