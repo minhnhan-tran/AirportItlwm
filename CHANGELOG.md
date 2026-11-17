@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.32] — 2026-11-17
+
+### Added
+
+- Data-path counters for the iPhone hotspot loss, reset at each authentication. Write
+  `sudo sysctl debug.itlwm.dpdump=1` to log them as `AirportItlwm: dp`:
+  - TX: frames handed to the firmware, firmware TX status OK/fail with the last failure code,
+    and aggregated per-frame status.
+  - RX: frames dropped by the descriptor checks, data frames from the BSS as delivered (all and
+    unicast to us), BA-reorder drops, and frames passed to net80211.
+  - net80211 drop counters: dup, wepfail, decap, unauth, CCMP replays and decrypt errors,
+    BA window below/above/jump/no-buf/gap timeout.
+  - TX rings that still hold frames.
+
+### Notes
+
+- 2.7.31 test (21:07): with `debug.itlwm.ps=1` (PM flags 3), the 5 GHz hotspot auto-join lost
+  100% to the gateway and 1.1.1.1. With `ps=0` (flags 1, after a Wi-Fi off/on) it lost 100% to
+  the gateway and 75% to 1.1.1.1 with 0.7–3.9 s RTT. Power save is not the cause. ARP for the
+  gateway resolved. A 10-ping run sent 13 packets and received 4.
+
 ## [2.7.31] — 2026-11-17
 
 ### Added

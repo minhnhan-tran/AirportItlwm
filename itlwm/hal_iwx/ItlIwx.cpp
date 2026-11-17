@@ -130,10 +130,59 @@ static int itlwm_txagg = 1;
 static int itlwm_ht_siso = 0;
 static int itlwm_ps = 1;
 static bool itlwm_sysctl_registered = false;
+
+/*
+ * Data-path diagnostics, reset at every iwx_auth: what was handed to the
+ * firmware, what it reported back, and where received BSS data went.
+ * Dump with `sudo sysctl debug.itlwm.dpdump=1` (IOLog).
+ */
+static struct {
+    uint32_t tx_submit, tx_submit_fail, tx_ok, tx_fail, tx_last_fail;
+    uint32_t agg_ok, agg_fail, agg_last_fail;
+    uint32_t rx_hw_drop, rx_bss_data, rx_bss_data_uc, rx_ba_drop, rx_input;
+} itlwm_dp;
+static struct iwx_softc *itlwm_dp_sc = NULL;
+
+static void
+itlwm_dp_dump(struct iwx_softc *sc)
+{
+    struct ieee80211com *ic = &sc->sc_ic;
+    struct ieee80211_stats *st = &ic->ic_stats;
+    IOLog("AirportItlwm: dp state=%d tx submit=%u submit_fail=%u ok=%u fail=%u last_fail=0x%x agg_ok=%u agg_fail=%u agg_last_fail=0x%x\n",
+          ic->ic_state, itlwm_dp.tx_submit, itlwm_dp.tx_submit_fail, itlwm_dp.tx_ok, itlwm_dp.tx_fail,
+          itlwm_dp.tx_last_fail, itlwm_dp.agg_ok, itlwm_dp.agg_fail, itlwm_dp.agg_last_fail);
+    IOLog("AirportItlwm: dp rx hw_drop=%u bss_data=%u bss_data_uc=%u ba_drop=%u input=%u\n",
+          itlwm_dp.rx_hw_drop, itlwm_dp.rx_bss_data, itlwm_dp.rx_bss_data_uc, itlwm_dp.rx_ba_drop, itlwm_dp.rx_input);
+    IOLog("AirportItlwm: dp n80211 dup=%u wepfail=%u decap=%u unauth=%u unencrypted=%u wrongbss=%u notassoc=%u ccmp_replays=%u ccmp_dec_errs=%u ba_below=%u ba_above=%u ba_jump=%u ba_nobuf=%u ba_gap_timeout=%u\n",
+          st->is_rx_dup, st->is_rx_wepfail, st->is_rx_decap, st->is_rx_unauth, st->is_rx_unencrypted,
+          st->is_rx_wrongbss, st->is_rx_notassoc, st->is_ccmp_replays, st->is_ccmp_dec_errs,
+          st->is_ht_rx_frame_below_ba_winstart, st->is_ht_rx_frame_above_ba_winend,
+          st->is_ht_rx_ba_window_jump, st->is_ht_rx_ba_no_buf, st->is_ht_rx_ba_window_gap_timeout);
+    for (int i = 0; i < (int)nitems(sc->txq); i++) {
+        struct iwx_tx_ring *ring = &sc->txq[i];
+        if (ring->ring_count && ring->queued)
+            IOLog("AirportItlwm: dp txq %d cur=%d tail=%d queued=%d\n", i, ring->cur, ring->tail, ring->queued);
+    }
+}
+
+static int
+itlwm_dpdump_handler SYSCTL_HANDLER_ARGS
+{
+    int v = 0;
+    int err = sysctl_handle_int(oidp, &v, 0, req);
+    if (err || req->newptr == USER_ADDR_NULL)
+        return err;
+    struct iwx_softc *sc = itlwm_dp_sc;
+    if (v && sc != NULL)
+        itlwm_dp_dump(sc);
+    return 0;
+}
 SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItlwm diagnostics");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
+SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
+            itlwm_dpdump_handler, "I", "write 1 to IOLog data-path counters");
 
 /*
  * Spatial streams usable towards the peer. On an HT-only link a peer in
@@ -272,7 +321,9 @@ void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
     if (itlwm_sysctl_registered) {
+        sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
+        itlwm_dp_sc = NULL;
         sysctl_unregister_oid(&sysctl__debug_itlwm_ht_siso);
         sysctl_unregister_oid(&sysctl__debug_itlwm_txagg);
         sysctl_unregister_oid(&sysctl__debug_itlwm);
@@ -5740,6 +5791,7 @@ iwx_rx_frame(struct iwx_softc *sc, mbuf_t m, int chanidx,
                      m, BPF_DIRECTION_IN);
     }
 #endif
+    itlwm_dp.rx_input++;
     ieee80211_inputm(IC2IFP(ic), m, ni, rxi, ml);
     ieee80211_release_node(ic, ni);
 }
@@ -6128,6 +6180,7 @@ iwx_rx_reorder(struct iwx_softc *sc, mbuf_t m, int chanidx,
     return 1;
 
 drop:
+    itlwm_dp.rx_ba_drop++;
     mbuf_freem(m);
     ieee80211_release_node(ic, ni);
     return 1;
@@ -6182,8 +6235,24 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
     
     if (!(desc->status & htole16(IWX_RX_MPDU_RES_STATUS_CRC_OK)) ||
         !(desc->status & htole16(IWX_RX_MPDU_RES_STATUS_OVERRUN_OK))) {
+        itlwm_dp.rx_hw_drop++;
         mbuf_freem(m);
         return; /* drop */
+    }
+    
+    /* Data-path diagnostics: data frames from our BSS as the firmware delivered them. */
+    if (ic->ic_opmode == IEEE80211_M_STA && ic->ic_state == IEEE80211_S_RUN &&
+        ic->ic_bss != NULL && maxlen > desc_size &&
+        le16toh(desc->mpdu_len) >= sizeof(struct ieee80211_frame) &&
+        le16toh(desc->mpdu_len) <= maxlen - desc_size) {
+        const struct ieee80211_frame *dh =
+            (const struct ieee80211_frame *)((const uint8_t *)pktdata + desc_size);
+        if ((dh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA &&
+            IEEE80211_ADDR_EQ(dh->i_addr2, ic->ic_bss->ni_bssid)) {
+            itlwm_dp.rx_bss_data++;
+            if (IEEE80211_ADDR_EQ(dh->i_addr1, ic->ic_myaddr))
+                itlwm_dp.rx_bss_data_uc++;
+        }
     }
     
     /*
@@ -6675,6 +6744,12 @@ iwx_rx_tx_cmd(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
     if (tx_resp->frame_count > 1) {
         for (int i = 0; i < tx_resp->frame_count; i++) {
             uint16_t fstatus = le16_to_cpu((&tx_resp->status)[i].status);
+            if ((fstatus & IWX_AGG_TX_STATE_STATUS_MSK) == IWX_AGG_TX_STATE_TRANSMITTED) {
+                itlwm_dp.agg_ok++;
+            } else {
+                itlwm_dp.agg_fail++;
+                itlwm_dp.agg_last_fail = fstatus & IWX_AGG_TX_STATE_STATUS_MSK;
+            }
 
             DPRINTFN(3, ("status %s (0x%04x), try-count (%d) qid (%d) seq (0x%x)\n",
                          iwx_get_agg_tx_status(fstatus),
@@ -6704,6 +6779,15 @@ iwx_rx_tx_cmd(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
             } else {
                 sc->sc_ic.ic_awdl_tx_fail++;
                 sc->sc_ic.ic_awdl_tx_last_status = st;
+            }
+        }
+        {
+            int st = le16toh(tx_resp->status.status) & IWX_TX_STATUS_MSK;
+            if (st == IWX_TX_STATUS_SUCCESS || st == IWX_TX_STATUS_DIRECT_DONE) {
+                itlwm_dp.tx_ok++;
+            } else {
+                itlwm_dp.tx_fail++;
+                itlwm_dp.tx_last_fail = st;
             }
         }
         iwx_rx_tx_cmd_single(sc, pkt, txd);
@@ -11128,6 +11212,7 @@ iwx_auth(struct iwx_softc *sc)
 {
     XYLog("%s\n", __FUNCTION__);
     sc->sc_preauth_rx_logged = 0;
+    memset(&itlwm_dp, 0, sizeof(itlwm_dp));
     struct ieee80211com *ic = &sc->sc_ic;
     struct iwx_node *in = (struct iwx_node *)ic->ic_bss;
     uint32_t duration;
@@ -12489,9 +12574,11 @@ _iwx_start_task(OSObject *target, void *arg0, void *arg1, void *arg2, void *arg3
         if (that->iwx_tx(sc, m, ni, ac) != 0) {
             ieee80211_release_node(ic, ni);
             ifp->netStat->outputErrors++;
+            itlwm_dp.tx_submit_fail++;
             continue;
         }
         ifp->netStat->outputPackets++;
+        itlwm_dp.tx_submit++;
         
         if (ifp->if_flags & IFF_UP) {
             sc->sc_tx_timer = 15;
@@ -15527,6 +15614,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     ic->ic_updateedca = iwx_updateedca;
     ic->ic_updatedtim = iwx_updatedtim;
     ic->ic_link_up = iwx_link_up;
+    itlwm_dp_sc = sc;
     ic->ic_ampdu_rx_start = iwx_ampdu_rx_start;
     ic->ic_ampdu_rx_stop = iwx_ampdu_rx_stop;
     ic->ic_ampdu_tx_start = iwx_ampdu_tx_start;
@@ -15535,6 +15623,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_txagg);
         sysctl_register_oid(&sysctl__debug_itlwm_ht_siso);
         sysctl_register_oid(&sysctl__debug_itlwm_ps);
+        sysctl_register_oid(&sysctl__debug_itlwm_dpdump);
         itlwm_sysctl_registered = true;
     }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;
