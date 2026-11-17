@@ -8233,13 +8233,15 @@ iwx_umac_scan_fill_channels(struct iwx_softc *sc,
 #ifdef AIRPORT_WCL
         bool passive = c->ic_flags & IEEE80211_CHAN_PASSIVE;
         /*
-         * With LAR the NVM profile marks 5 GHz passive and the firmware enforces
-         * no-IR itself (passive dwell until it hears a beacon), as Linux iwlwifi
-         * and OpenBSD iwx rely on. Directed WCL scans (Instant Hotspot: hidden
-         * SSID on channel 36/149) must probe there; DFS channels stay passive.
+         * A hidden SSID (Instant Hotspot) answers only directed probes, and
+         * net80211 matches a hidden BSS only from its probe response. So both
+         * the WCL scan and net80211's join scan (ic_des_essid) must probe the
+         * NVM-passive 5 GHz channels. See AirportWCL::probePassiveChannel.
          */
-        if (passive && sc->sc_nvm.lar_enabled && ic->ic_wcl_scan_requested &&
-            ic->ic_wcl_scan_ssid_length)
+        if (passive && AirportWCL::probePassiveChannel(sc->sc_nvm.lar_enabled, bgscan,
+                (ic->ic_wcl_scan_requested ? ic->ic_wcl_scan_ssid_length :
+                 ic->ic_des_esslen) != 0,
+                IEEE80211_IS_CHAN_5GHZ(c), channel_num))
             passive = false;
         if (AirportWCL::probeChannel(n_ssids != 0, passive, c->ic_flags & IEEE80211_CHAN_DFS))
 #else

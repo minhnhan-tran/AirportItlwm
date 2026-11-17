@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.24] — 2026-11-17
+
+### Fixed
+
+- Instant Hotspot join, part 6. 2.7.23 confirmed the cause: the driver map marks every 5 GHz
+  channel passive (LAR, MCC `00`). The directed WCL scan of channel 36 now gets the hidden
+  hotspot's probe response (`ssid[20]`), so airportd matches the hotspot and asks to associate.
+  That join timed out (-3905, WCL join status 1009/1007, no auth attempted). The join restarts
+  the firmware, which empties the node cache, and net80211's own join scan of channel 36
+  (`ic_des_essid`) still did not probe. Only the hotspot's empty-SSID beacons came back, and they
+  never match. Directed join scans now probe passive 5 GHz channels too, with LAR only and never
+  during background scans (`AirportWCL::probePassiveChannel`).
+- The driver map flags no channel DFS (`dfs=[]` in every 2.7.23 scan log), so 2.7.23's DFS
+  exception did nothing and directed WCL scans could probe channels 52–144. That range now
+  stays passive explicitly.
+
 ## [2.7.23] — 2026-11-17
 
 ### Fixed

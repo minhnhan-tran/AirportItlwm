@@ -336,6 +336,17 @@ inline bool scanUsesProbes(bool requested, bool activeRequest) {
     return requested ? activeRequest : true;
 }
 
+// With LAR the NVM profile marks every 5 GHz channel passive (MCC "00"), while
+// the firmware enforces no-IR itself (passive dwell until it hears a beacon),
+// as Linux iwlwifi and OpenBSD iwx rely on. A directed scan may therefore ask
+// it to probe those channels. The NVM map flags no channel DFS, so the 5 GHz
+// DFS range (52-144) stays passive here explicitly.
+inline bool probePassiveChannel(bool larEnabled, bool bgscan, bool directed,
+                                bool is5GHz, unsigned channel) {
+    return larEnabled && !bgscan && directed && is5GHz &&
+        !(channel >= 52 && channel <= 144);
+}
+
 // Present the supported PSK option of a PSK/SAE transition network to WCL.
 // This operates on the scan-message copy, never the received beacon or the
 // net80211 RSN IE used to validate the four-way handshake. SAE-only, mandatory
