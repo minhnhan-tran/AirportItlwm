@@ -257,6 +257,23 @@ private:
     uint64_t fRxAFChan161;          // also counted in Other
     uint64_t fListenOnChan[4];      // listens started on 6, 44, 149, 161
     void publishListenState();
+    // Slot pairing diagnostics (AWDLPairStats): each AW slot is classified by
+    // our channel and the peer's predicted channel; per class: slots, slots
+    // with any AWDL RX, data frames received, data frames sent.
+    enum { kPairCommonOff, kPairCommonHome, kPairPeerOnHome, kPairPeerElsewhere,
+           kPairOwnOnly, kPairIdle, kPairUnknown, kPairClasses };
+    uint64_t fPairSlots[kPairClasses];
+    uint64_t fPairHeard[kPairClasses];
+    uint64_t fPairRx[kPairClasses];
+    uint64_t fPairTx[kPairClasses];
+    bool fPairOpen;
+    uint8_t fPairCur;
+    uint64_t fPairStartUs;
+    uint64_t fPairRx0, fPairTx0, fPairAF0;
+    uint32_t fPairQMax;
+    uint32_t fPairTick;
+    void notePairSlot(uint8_t own, uint64_t slotStartUs);
+    void publishPairState();
     uint64_t hostRxUs(const ieee80211_rxinfo *rxi);
     // Stage 3: transmit payloads handed down by the peer manager (recorded only).
     void recordOOB(const void *req, bool autoReq);

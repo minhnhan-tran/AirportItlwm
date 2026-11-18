@@ -808,6 +808,7 @@ postAWEvents()
     if (slotChan && !slotChan->channel) {
         fLastValid = true;
         fLastSeq = seq;
+        notePairSlot(0, (uint64_t)start);
         unsigned home = currentHomeChannel();
         if (home && canTxOnChannel((uint8_t)home) &&
             canFlushDataOnChannel((uint8_t)home, start + slotUs() / 2)) {
@@ -834,6 +835,7 @@ postAWEvents()
         ev.chan.channel = 6;
         ev.chan.flags = APPLE80211_C_FLAG_2GHZ | APPLE80211_C_FLAG_20MHZ;
     }
+    notePairSlot((uint8_t)ev.chan.channel, (uint64_t)start);
     postMessage(kAWDLMsgAWStart, &ev, sizeof(ev), true);
     maybeListen(ev.chan.channel, seq);
     if (ev.chan.channel && ev.chan.channel == currentHomeChannel() &&
@@ -2027,6 +2029,65 @@ publishSyncState()
     setProperty("AWDLPresenceMode", presenceMode(), 32);
 }
 
+// Close the slot that just ended (data moved during it, any AWDL RX) and
+// classify the one starting: c = common channel, p = only the peer is on a
+// channel (Home: our infra channel, where we stay in idle slots), own = only
+// us, unk = no peer timeline yet.
+void AirportItlwmAWDLInterface::
+notePairSlot(uint8_t own, uint64_t slotStartUs)
+{
+    uint64_t slot = slotUs();
+    if (fPairOpen && slotStartUs > fPairStartUs && slotStartUs - fPairStartUs <= 3 * slot) {
+        uint64_t rx = fDataRx - fPairRx0, tx = fDataTx - fPairTx0, af = fRxAF - fPairAF0;
+        fPairRx[fPairCur] += rx;
+        fPairTx[fPairCur] += tx;
+        if (rx || af)
+            fPairHeard[fPairCur]++;
+    }
+    unsigned home = currentHomeChannel();
+    unsigned peer = (fPeerValid && fPeerChanValid) ? peerChannelAt(slotStartUs + slot / 2) : 0;
+    uint8_t cls;
+    if (!fPeerValid || !fPeerChanValid)
+        cls = kPairUnknown;
+    else if (own && own == peer)
+        cls = own == home ? kPairCommonHome : kPairCommonOff;
+    else if (!own && peer && peer == home)
+        cls = kPairPeerOnHome;
+    else if (peer)
+        cls = kPairPeerElsewhere;
+    else if (own)
+        cls = kPairOwnOnly;
+    else
+        cls = kPairIdle;
+    fPairSlots[cls]++;
+    fPairCur = cls;
+    fPairOpen = true;
+    fPairStartUs = slotStartUs;
+    fPairRx0 = fDataRx;
+    fPairTx0 = fDataTx;
+    fPairAF0 = fRxAF;
+    if (fDataQCount > fPairQMax)
+        fPairQMax = fDataQCount;
+    if ((++fPairTick & 0xf) == 0)
+        publishPairState();
+}
+
+void AirportItlwmAWDLInterface::
+publishPairState()
+{
+    static const char *const names[kPairClasses] = { "cOff", "cHome", "pHome", "pElse", "own", "idle", "unk" };
+    char buf[640];
+    size_t o = 0;
+    for (unsigned c = 0; c < kPairClasses && o < sizeof(buf); c++)
+        o += snprintf(buf + o, sizeof(buf) - o, "%s%s=%llu/%llu/%llu/%llu", c ? " " : "", names[c],
+                      (unsigned long long)fPairSlots[c], (unsigned long long)fPairHeard[c],
+                      (unsigned long long)fPairRx[c], (unsigned long long)fPairTx[c]);
+    if (o < sizeof(buf))
+        snprintf(buf + o, sizeof(buf) - o, " qmax=%u", fPairQMax);
+    setProperty("AWDLPairStats", buf);
+    fPairQMax = 0;
+}
+
 #pragma mark - creation, mirrors AppleBCMWLANCore::createProxInterface
 
 IOReturn AirportItlwmSkywalkInterface::
@@ -2336,6 +2397,13 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fBssidSets = 0;
     fPeerCacheOps = 0;
     fDataTxNotCommon = 0;
+    memset(fPairSlots, 0, sizeof(fPairSlots));
+    memset(fPairHeard, 0, sizeof(fPairHeard));
+    memset(fPairRx, 0, sizeof(fPairRx));
+    memset(fPairTx, 0, sizeof(fPairTx));
+    fPairOpen = false;
+    fPairQMax = 0;
+    fPairTick = 0;
     AWDL_LOG("role %u prefix %s mac %s", role, prefix, ether_sprintf(mac->octet));
     return true;
 }

@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.45] — 2026-11-18
+
+### Added
+
+- AWDL slot-pairing diagnostics, to explain the AirDrop speed swings (fast on some transfers,
+  stalled on others) with the Mac on Wi-Fi on another channel (home 5 GHz ch 36). The
+  `AWDLPairStats` property of AirportItlwmAWDLInterface (refreshed about once a second)
+  classifies every AW slot by our channel and the peer's predicted channel:
+  - `cOff`: both on the same channel, not the infra channel
+  - `cHome`: both on the infra channel
+  - `pHome`: the peer is on the infra channel while our slot is idle
+  - `pElse`: the peer is on another channel
+  - `own`: only we are on a channel
+  - `idle`: neither of us is on a channel
+  - `unk`: no peer timeline yet
+
+  Each class reports slots / slots with any AWDL RX / data frames received / data frames sent.
+  `qmax` is the deepest AWDL data TX queue since the last refresh. No log lines.
+
 ## [2.7.44] — 2026-11-18
 
 ### Fixed
