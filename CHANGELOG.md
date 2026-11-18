@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.48] — 2026-11-18
+
+### Changed
+
+- `debug.itlwm.awdl_dpstats` now defaults to 1 (2.7.47 shipped it off). Hardware test, iPhone to
+  Mac, 100 MB over AirDrop with the Mac on 5 GHz channel 36: off gave 3.7 Mbit/s average
+  (4.7 peak); on gave about 8 Mbit/s average (12.3 peak), with the Family's data-mode monitor
+  reporting `indatamode 1` and `airportd` applying the high-throughput channel sequence.
+  106 calls, all returning 0, no panic. Set it to 0 to turn it off.
+
 ## [2.7.47] — 2026-11-18
 
 ### Added
