@@ -31,6 +31,22 @@ extern "C" void IO80211VirtualInterface_bpfTapInput(IO80211VirtualInterface *, A
                                                     unsigned int, void *, unsigned long)
     __asm__("__ZN23IO80211VirtualInterface11bpfTapInputEP13IO80211BufferjPvm");
 
+// apple80211_data_path_interface_stats as IO80211SkywalkInterface::updateInterfaceDataStats
+// and IO80211PeerManager::updateLocalCounters read it on Tahoe 26.x: +0x08 Tx packets and
+// +0x18 Rx packets are the counters IO80211AWDLPeerManager::monitorAWDLDataMode watches;
+// +0x150 is added to a running total on every call; +0x180 holds 4 x 0x140 TX latency
+// histograms (one per AC). Everything else stays zero.
+struct AWDLDataPathStatsABI {
+    uint64_t hdr;          // 0x00
+    uint64_t txPackets;    // 0x08
+    uint64_t f10;          // 0x10
+    uint64_t rxPackets;    // 0x18
+    uint8_t  rest[0x800 - 0x20];
+};
+static_assert(sizeof(AWDLDataPathStatsABI) == 0x800, "AWDL data path stats size");
+extern "C" IOReturn IO80211SkywalkInterface_updateInterfaceDataStats(IO80211VirtualInterface *, AWDLDataPathStatsABI *)
+    __asm__("__ZN23IO80211SkywalkInterface24updateInterfaceDataStatsEP36apple80211_data_path_interface_stats");
+
 // Role values used by IO80211 on Tahoe (apple80211_virtual_if_role).
 enum : unsigned int {
     kAirportItlwmRoleAWDL = 6,
@@ -274,6 +290,12 @@ private:
     uint32_t fPairTick;
     void notePairSlot(uint8_t own, uint64_t slotStartUs);
     void publishPairState();
+    // AWDL data counts pushed to IO80211Family (debug.itlwm.awdl_dpstats).
+    AWDLDataPathStatsABI fDPStats;
+    uint64_t fDPStatsCalls;
+    uint64_t fDPStatsLastTx, fDPStatsLastRx;
+    IOReturn fDPStatsLastRet;
+    void reportDataPathStats();
     uint64_t hostRxUs(const ieee80211_rxinfo *rxi);
     // Stage 3: transmit payloads handed down by the peer manager (recorded only).
     void recordOOB(const void *req, bool autoReq);

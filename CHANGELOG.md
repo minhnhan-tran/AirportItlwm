@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.47] — 2026-11-18
+
+### Added
+
+- AirDrop speed, part 2: a switch to test, off by default. `debug.itlwm.awdl_dpstats=1`
+  pushes the driver's AWDL data frame counts to IO80211Family about every 260 ms, through
+  `IO80211SkywalkInterface::updateInterfaceDataStats`.
+  - The Family's AWDL data-mode monitor (`IO80211AWDLPeerManager::monitorAWDLDataMode`,
+    about 1 Hz) moves the Mac to the high-throughput channel sequence only when its
+    peer-manager Tx/Rx counters move.
+  - Two paths fill those counters: the Family's own peer-manager packet path, or this call
+    (through `IO80211PeerManager::updateLocalCounters`). This driver used neither, so in the
+    2.7.45 AirDrop test the monitor logged Tx/Rx 0 throughout and the Mac stayed on its
+    low-power sequence for 481 of 491 s.
+  - Only the Tx and Rx packet fields (+0x08, +0x18) are filled; every other field stays zero.
+  - `AWDLPairStats` gains `dps=<calls>/<last return>`. The first two calls and any failures
+    are logged as `AirportItlwm: AWDL dp stats`.
+
 ## [2.7.46] — 2026-11-18
 
 ### Changed

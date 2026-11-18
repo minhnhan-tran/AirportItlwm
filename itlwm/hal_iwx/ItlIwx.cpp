@@ -151,6 +151,8 @@ extern int itlwm_ihs_ie;
 int itlwm_ihs_ie = 1;
 extern int itlwm_awdl_infra_nth;
 int itlwm_awdl_infra_nth = 1;
+extern int itlwm_awdl_dpstats;
+int itlwm_awdl_dpstats = 0;
 static bool itlwm_sysctl_registered = false;
 
 /*
@@ -206,6 +208,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_listen, 0, "AWDL listens on the infra channel: 0 never, 1 peer traffic, 2 want data");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off (default), 1 on");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_bss_promisc, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_bss_promisc, 0, "1: promiscuous station MAC for AWDL (breaks infra traffic)");
 SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
             itlwm_dpdump_handler, "I", "write 1 to IOLog data-path counters");
@@ -350,6 +353,7 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_listen);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
@@ -15664,6 +15668,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_listen);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
+    sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);
         itlwm_sysctl_registered = true;
     }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;

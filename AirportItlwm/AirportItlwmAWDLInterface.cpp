@@ -316,6 +316,7 @@ static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData)
 }
 
 extern int itlwm_awdl_infra_nth;
+extern int itlwm_awdl_dpstats;
 
 /*
  * 1 in every n off-channel listens passes the infra hold; 0 holds them all.
@@ -2068,8 +2069,10 @@ notePairSlot(uint8_t own, uint64_t slotStartUs)
     fPairAF0 = fRxAF;
     if (fDataQCount > fPairQMax)
         fPairQMax = fDataQCount;
-    if ((++fPairTick & 0xf) == 0)
+    if ((++fPairTick & 0xf) == 0) {
         publishPairState();
+        reportDataPathStats();
+    }
 }
 
 void AirportItlwmAWDLInterface::
@@ -2083,9 +2086,38 @@ publishPairState()
                       (unsigned long long)fPairSlots[c], (unsigned long long)fPairHeard[c],
                       (unsigned long long)fPairRx[c], (unsigned long long)fPairTx[c]);
     if (o < sizeof(buf))
-        snprintf(buf + o, sizeof(buf) - o, " qmax=%u", fPairQMax);
+        snprintf(buf + o, sizeof(buf) - o, " qmax=%u dps=%llu/0x%x", fPairQMax,
+                 (unsigned long long)fDPStatsCalls, (unsigned)fDPStatsLastRet);
     setProperty("AWDLPairStats", buf);
     fPairQMax = 0;
+}
+
+/*
+ * IO80211AWDLPeerManager::monitorAWDLDataMode (about 1 Hz) moves the Mac to the
+ * high-throughput AWDL sequence only when its peer-manager Tx/Rx counters move.
+ * The Family's own peer-manager packet path fills them (this driver does not use
+ * it), or updateInterfaceDataStats through IO80211PeerManager::updateLocalCounters.
+ * Push our cumulative AWDL data frame counts through the latter.
+ */
+void AirportItlwmAWDLInterface::
+reportDataPathStats()
+{
+    if (itlwm_awdl_dpstats <= 0)
+        return;
+    uint64_t tx = fDataTx, rx = fDataRx;
+    if (fDPStatsCalls && tx == fDPStatsLastTx && rx == fDPStatsLastRx)
+        return;
+    memset(&fDPStats, 0, sizeof(fDPStats));
+    fDPStats.txPackets = tx;
+    fDPStats.rxPackets = rx;
+    IOReturn ret = IO80211SkywalkInterface_updateInterfaceDataStats(this, &fDPStats);
+    fDPStatsCalls++;
+    fDPStatsLastRet = ret;
+    fDPStatsLastTx = tx;
+    fDPStatsLastRx = rx;
+    if (fDPStatsCalls <= 2 || (ret != kIOReturnSuccess && (fDPStatsCalls & 0xff) == 1))
+        IOLog("AirportItlwm: AWDL dp stats #%llu ret=0x%x tx=%llu rx=%llu\n",
+              (unsigned long long)fDPStatsCalls, ret, (unsigned long long)tx, (unsigned long long)rx);
 }
 
 #pragma mark - creation, mirrors AppleBCMWLANCore::createProxInterface
@@ -2404,6 +2436,9 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fPairOpen = false;
     fPairQMax = 0;
     fPairTick = 0;
+    fDPStatsCalls = 0;
+    fDPStatsLastTx = fDPStatsLastRx = 0;
+    fDPStatsLastRet = kIOReturnSuccess;
     AWDL_LOG("role %u prefix %s mac %s", role, prefix, ether_sprintf(mac->octet));
     return true;
 }
