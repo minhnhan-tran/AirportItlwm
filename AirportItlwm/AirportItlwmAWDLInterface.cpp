@@ -315,13 +315,24 @@ static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData)
     return mode >= 2 && wantData;
 }
 
-static unsigned awInfraListenNth()
+extern int itlwm_awdl_infra_nth;
+
+/*
+ * 1 in every n off-channel listens passes the infra hold; 0 holds them all.
+ * While AWDL wants data (AirDrop etc.), n is debug.itlwm.awdl_infra_nth:
+ * those listens are the only time the Mac is on a peer's channel (an iPhone
+ * on 149 while the Mac's infra is on 36), so with all of them held the Mac
+ * cannot send to it. Otherwise n is the itlawdlinfranth=<n> boot-arg.
+ */
+static unsigned awInfraListenNth(bool wantData)
 {
     static int nth = -1;
     if (nth < 0) {
         int v = 0;
         nth = PE_parse_boot_argn("itlawdlinfranth", &v, sizeof(v)) && v > 0 ? v : 0;
     }
+    if (wantData && itlwm_awdl_infra_nth >= 0)
+        return (unsigned)itlwm_awdl_infra_nth;
     return (unsigned)nth;
 }
 
@@ -1094,7 +1105,7 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
     ieee80211com *ic = fController->fHalService->get80211Controller();
     if (home && chan != home && ic->ic_opmode == IEEE80211_M_STA &&
         ic->ic_state == IEEE80211_S_RUN && fPeerTrafficActive == 0) {
-        unsigned nth = awInfraListenNth();
+        unsigned nth = awInfraListenNth(ic->ic_awdl_want_data != 0);
         if (!nth || ++fListenInfraSlot % nth) {
             fListenInfraHold++;
             if ((fListenInfraHold & 0xff) == 1)

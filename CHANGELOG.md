@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.44] — 2026-11-18
+
+### Fixed
+
+- AirDrop from the Mac to an iPhone while the Mac is on Wi-Fi on another channel than AWDL's
+  (2026-11-18 test: home 5 GHz ch 36, AWDL ch 149; iPhone to Mac worked, Mac to iPhone failed).
+  The 2.7.33 infra hold drops every off-channel AWDL listen while associated unless airportd
+  reports peer traffic, which Tahoe never does (AWDLListenInfraHold 5377 in one session), so
+  the Mac was never on the iPhone's channel to transmit. New `debug.itlwm.awdl_infra_nth`
+  (default 2): while AWDL wants data, 1 in every n off-channel listens goes out (0 = hold all
+  as in 2.7.33, 1 = none held). Without AWDL data, the hold and the `itlawdlinfranth=<n>`
+  boot-arg are unchanged.
+
 ## [2.7.43] — 2026-11-18
 
 ### Removed
