@@ -29,6 +29,50 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   Bluetooth, so it also depends on a working Intel Bluetooth stack
   (BlueToolFixup with `-btlfxadvsets` on macOS 26.7.3). Both devices need the same
   Apple ID, Wi-Fi and Bluetooth on, and Handoff enabled on each.
+- **iPhone Instant Hotspot works** (clicking the iPhone in the Wi-Fi menu or Control
+  Center; tested on a MacPro7,1 SMBIOS with an Intel AX210, macOS Tahoe 26.7.3, an
+  iPhone 16 Pro, AirportItlwm 2.7.42 or later). The Mac joins on the first attempt,
+  gets an address in 5 to 10 s, and pings and HTTPS run with no loss. Notes:
+  - Real Macs add Apple's Instant Hotspot device IE to the (Re)Association Request;
+    without it the iPhone accepts the association but never sends EAPOL message 1.
+    The driver adds it by default (`sysctl debug.itlwm.ihs_ie`: `1` on, `-1` off, or
+    a flags byte `0` to `255`).
+  - Waking the hotspot needs a Bluetooth LE connection from the Mac to the iPhone,
+    so it depends on a working Intel Bluetooth stack. The iPhone uses a private
+    address, which bluetoothd cannot resolve with an Intel controller; the test
+    setup used an IntelBTPatcher change (not in this repo) that loads the iPhone's
+    IRK into the controller's resolving list.
+  - Turn "Maximize Compatibility" off on the iPhone (5 GHz hotspot). The hotspot
+    channel can differ from the AWDL channel; since 2.7.36 that no longer causes
+    packet loss with `awdl0` up (the receive filter stays off the station MAC; see
+    `debug.itlwm.awdl_bss_promisc`).
+  - A saved network with `AutoJoinDisabled` does not auto-join after a reboot or a
+    Wi-Fi off/on; join it from the Wi-Fi menu.
+- **AirDrop works over AWDL, with limited speed** (same test setup and AWDL boot-args
+  as above, AirportItlwm 2.7.48). Discovery and transfers work in both directions,
+  also while the Mac is joined to home Wi-Fi or to the iPhone hotspot on any channel.
+  Notes:
+  - When the Mac and the iPhone are on the same network, AirDrop goes over that
+    network (Wi-Fi or Ethernet) and is fast, not over `awdl0`. To exercise AWDL,
+    disconnect the iPhone from Wi-Fi (leave Wi-Fi and Bluetooth on).
+  - Over `awdl0` a 100 MB transfer took about 2 to 8 minutes (about 3 to 12 Mbit/s,
+    iPhone to Mac usually faster than Mac to iPhone). One cause is the channel
+    schedule: during a transfer the iPhone moves to a high-throughput schedule
+    (11 of 16 slots on channel 149), and the Mac follows only if macOS sees AWDL
+    traffic. The driver reports its AWDL data counts to IO80211Family through
+    `updateInterfaceDataStats` (`sysctl debug.itlwm.awdl_dpstats`, default `1`);
+    with it off the Mac stays on its low-power schedule, and iPhone to Mac measured
+    3.7 Mbit/s instead of 8 Mbit/s, Mac to iPhone 1.7 instead of 2.8 Mbit/s.
+  - Other switches (defaults in brackets): `debug.itlwm.awdl_home_listen` [2] makes
+    AWDL listen on the infrastructure channel whenever it wants data (needed for
+    AirDrop when the hotspot or router is on AWDL's channel),
+    `debug.itlwm.awdl_infra_nth` [1] limits how often off-channel listens are
+    held back while joined to an infrastructure network, `debug.itlwm.awdl_bss_promisc`
+    [0] turns the station-MAC promiscuous filter back on (it stalls TX on a shared
+    channel), and `debug.itlwm.ps` [1] turns client power save on or off.
+  - The `AWDLPairStats` property on the AWDL interface in `ioreg` shows how the
+    Mac's and the peer's channel slots overlap, and `dps=<calls>/<result>` for the
+    data-count reports.
 - **Continuity Camera works over USB only.** With the iPhone connected by cable it
   appears as a camera and works (tested in Photo Booth). Wirelessly it does not
   appear in FaceTime or Photo Booth: the Mac's Continuity Camera agent reads the

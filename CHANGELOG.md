@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.49] — 2026-11-18
+
+### Changed
+
+- README: documented iPhone Instant Hotspot and AirDrop over AWDL (what works, the
+  sysctl switches and their defaults, measured speeds, and how to force AWDL for a test).
+  Documentation only.
+
 ## [2.7.48] — 2026-11-18
 
 ### Changed
