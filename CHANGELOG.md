@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.42] — 2026-11-18
+
+### Fixed
+
+- Instant Hotspot click from Control Center now joins. `debug.itlwm.ihs_ie` defaults to 1, so
+  every (Re)Association Request carries Apple's Instant Hotspot device IE (`dd 0b 00 17 f2 0b
+  00 01 04 01 00 00 00`); -1 turns it off. Without it, the iPhone accepts the association but
+  never starts the 4-way handshake, and airportd gives up with -3905 / INVALID_AKMS. Tested on
+  2.7.41 (Tahoe, iPhone hotspot with Allow Others to Join and Maximize Compatibility off):
+  - IE on: 2 of 2 clicks joined on the first association. The 4-way handshake completed, IP in
+    5–10 s, 0% ping loss, HTTPS 200.
+  - IE off (same hotspot session): 5 associations, no EAPOL, Join FAILED -3905.
+  - IE on with a home WPA2-Personal router (5 GHz ch 36): joined, 0% loss, HTTPS 200.
+  Real Macs send this IE only for Instant Hotspot joins. Standard APs ignore unknown vendor
+  IEs, so it is sent on every join.
+
 ## [2.7.41] — 2026-11-18
 
 ### Added
