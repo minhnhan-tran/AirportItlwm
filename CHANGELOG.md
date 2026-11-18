@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.36] — 2026-11-18
+
+### Fixed
+
+- iPhone Personal Hotspot traffic died (100% ping loss, no DHCP lease) while awdl0 was up.
+  Root cause: with `-itlawdlpromisc`, the station MAC context got `IWX_MAC_FILTER_IN_PROMISC`
+  whenever AWDL wanted data. With that filter set, the associated BSS's traffic stops getting
+  through: CCMP decrypt errors climb and a TX queue backs up. The 2.7.35 switches bisected it on
+  one boot. `awdl_home_tx=0` and `awdl_tx=0` changed nothing. `awdl_bss_promisc=0` plus a
+  Wi-Fi off/on gave 0% loss (gateway about 3.5 ms, 1.1.1.1 60–170 ms, HTTPS 200) and a DHCP
+  lease within 3 s. Turning it back on broke the link again. Each direction was reproduced
+  three times. Station-MAC promisc is now off by default. The P2P MAC keeps its own
+  promiscuous filter for AWDL. `debug.itlwm.awdl_bss_promisc=1` turns it back on for AWDL
+  experiments; it still needs `-itlawdlpromisc`.
+- The 2.7.33 listen hold and the 2.7.34 P2P PHY park targeted this loss but did not fix it.
+  Both are still in place; boot-arg `itlawdlinfranth=1` turns them off.
+
+### Removed
+
+- The `debug.itlwm.awdl_tx` and `debug.itlwm.awdl_home_tx` diagnostic switches, which had no
+  effect on the loss.
+
 ## [2.7.35] — 2026-11-17
 
 ### Added
