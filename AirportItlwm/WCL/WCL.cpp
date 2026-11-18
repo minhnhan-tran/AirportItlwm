@@ -527,6 +527,13 @@ void AirportItlwmSkywalkInterface::publishWCLBeacon(const ieee80211_node *node, 
     memcpy(metadata + 1, ies, length);
     metadata->ieLength = uint32_t(AirportWCL::selectWPA2TransitionMode(
         reinterpret_cast<uint8_t *>(metadata + 1), length));
+    /* Shows when the BSS being joined (PSK+SAE) was reported to airportd as PSK only. */
+    if (metadata->ieLength != length && joinPending && IEEE80211_ADDR_EQ(node->ni_bssid, joinBSSID)) {
+        static uint32_t transitionLogs;
+        if (transitionLogs++ < 32)
+            IOLog("AirportItlwm: WCL join BSS reported as WPA2-PSK only (SAE AKM removed, %u -> %u IE bytes)\n",
+                  (unsigned)length, (unsigned)metadata->ieLength);
+    }
     size_t messageSize = sizeof(*metadata) + metadata->ieLength;
     if (assocNotified && IEEE80211_ADDR_EQ(node->ni_bssid, joinBSSID)) {
         wclBssValid = messageSize <= sizeof(wclBssInfo);
@@ -651,6 +658,26 @@ IOReturn AirportItlwmSkywalkInterface::beginWCLJoin(apple80211AssocCandidates *r
 IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &join)
 {
     auto auth = AirportWCL::classifyLegacyAuth(join);
+    {
+        /*
+         * What airportd asks for (no key or SSID bytes). upper is an
+         * apple80211_authtype_upper mask (bit 3 WPA2-PSK, bit 12 WPA3-SAE);
+         * class 0 means rejected (kIOReturnUnsupported).
+         */
+        static const char hx[] = "0123456789abcdef";
+        char rsnhex[2 * 64 + 1];
+        size_t rl = join.rsnLength < 64 ? join.rsnLength : 64;
+        for (size_t i = 0; i < rl; i++) {
+            rsnhex[2 * i] = hx[join.rsn[i] >> 4];
+            rsnhex[2 * i + 1] = hx[join.rsn[i] & 0xf];
+        }
+        rsnhex[2 * rl] = '\0';
+        IOLog("AirportItlwm: WCL join lower=0x%x upper=0x%x class=%d key_len=%u cipher=%u ssid_len=%u "
+              "chanspec=0x%x bssid=%02x:%02x:%02x:%02x:%02x:%02x rsn_len=%u rsn=%s%s\n",
+              join.lowerAuth, join.upperAuth, (int)auth, join.keyLength, join.keyCipher, join.ssidLength,
+              join.channelSpec, join.bssid[0], join.bssid[1], join.bssid[2], join.bssid[3], join.bssid[4],
+              join.bssid[5], join.rsnLength, rsnhex, join.rsnLength > rl ? "..." : "");
+    }
     bool personal = auth == AirportWCL::LegacyAuth::Personal;
     bool enterprise = auth == AirportWCL::LegacyAuth::Enterprise;
     bool supported = auth != AirportWCL::LegacyAuth::Invalid;
@@ -813,6 +840,7 @@ void AirportItlwmSkywalkInterface::finishWCLJoin(uint16_t status, uint16_t reaso
 {
     if (!joinPending)
         return;
+    IOLog("AirportItlwm: WCL join done status=%u reason=%u driver=0x%x\n", status, reason, driverStatus);
     AirportWCL::ConnectionEvent event = {};
     event.status = status;
     event.reason = reason;

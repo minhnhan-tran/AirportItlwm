@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.40] — 2026-11-18
+
+### Added
+
+- Instant Hotspot click diagnostics (WCL): `AirportItlwm: WCL join` logs what airportd asks
+  for in each join (lower/upper auth mask, classification, key length and cipher, channel,
+  BSSID, RSN IE; no key or SSID bytes). `AirportItlwm: WCL join done` logs the status, reason
+  and driver status reported back. A third log line appears when the BSS being joined
+  (WPA2/WPA3 transition, PSK+SAE) was reported to airportd as WPA2-PSK only.
+
+### Changed
+
+- 2.7.39 note: airportd never calls `APPLE80211_IOC_IE` on Tahoe, at boot or during the
+  Instant Hotspot click, so the 2.7.39 `setIE` path is unused and the click still fails. In
+  every attempt the iPhone accepts the association but never sends EAPOL msg 1/4; neither
+  side sends a deauth, and airportd records `INVALID_AKMS`.
+
 ## [2.7.39] — 2026-11-18
 
 ### Fixed
