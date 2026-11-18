@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.37] — 2026-11-18
+
+### Fixed
+
+- AirDrop between the Mac and the iPhone failed in both directions while the Mac was on the
+  iPhone's hotspot. The hotspot (5 GHz channel 149) shares a channel with AWDL, and on a shared
+  channel the driver never scheduled AWDL listens. AWDL data reached the Mac only through the
+  station-MAC promiscuous filter that 2.7.36 turned off. With `awdl_bss_promisc=0`,
+  Bonjour-over-AWDL discovery timed out and no AWDL data arrived. With `=1`, the iPhone was
+  found but the hotspot dropped to 100% loss. AWDL now also listens on the infra channel, in
+  its own time event: at most 64 TU per listen, then at least as long again on the station
+  (three times as long outside peer traffic). `debug.itlwm.awdl_home_listen` selects when:
+  0 never, 1 while AWDL peer traffic is registered (default), 2 whenever AWDL wants data
+  (also covers discovery). The count shows as `AWDLListenHome`.
+
+### Changed
+
+- Correction to 2.7.36: the station-MAC promiscuous filter stalls station TX (114 frames
+  submitted, 45 completions in the 2026-11-18 test). It does not cause CCMP decrypt errors
+  (0 in that test).
+
 ## [2.7.36] — 2026-11-18
 
 ### Fixed

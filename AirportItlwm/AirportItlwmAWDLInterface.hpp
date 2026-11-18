@@ -202,6 +202,9 @@ private:
     uint32_t fListenInfraSlot;
     unsigned fListenParkChan;       // P2P PHY parked on this infra channel (0: not parked)
     uint64_t fListenParked;
+    uint64_t fHomeListenNotBeforeUs; // next infra-channel AWDL listen not before (host us)
+    uint64_t fHomeListens;
+    bool fListenNextHome;           // the scheduled own listen is on the infra channel
     uint32_t fListenDwellTU;        // AWDLListenDwellTU
     uint32_t fListenEveryNth;       // AWDLListenEveryNth: 1 = every eligible slot
     // Peer timeline, so a listen can start when the peer is on the channel.

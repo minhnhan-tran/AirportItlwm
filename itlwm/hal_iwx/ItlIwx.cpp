@@ -136,6 +136,15 @@ static int itlwm_ps = 1;
  * 0% loss once it is cleared). The P2P MAC keeps its own promiscuous filter.
  */
 static int itlwm_awdl_bss_promisc = 0;
+/*
+ * AWDL listens on the infra channel itself. When AWDL and the BSS share a
+ * channel (iPhone hotspot on 149), the P2P MAC only receives in its own time
+ * event, so without these AirDrop gets no AWDL data. 0: never, 1: while AWDL
+ * peer traffic is registered, 2: whenever AWDL wants data. Read by
+ * AirportItlwmAWDLInterface.
+ */
+extern int itlwm_awdl_home_listen;
+int itlwm_awdl_home_listen = 1;
 static bool itlwm_sysctl_registered = false;
 
 /*
@@ -188,6 +197,7 @@ SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItl
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_listen, 0, "AWDL listens on the infra channel: 0 never, 1 peer traffic, 2 want data");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_bss_promisc, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_bss_promisc, 0, "1: promiscuous station MAC for AWDL (breaks infra traffic)");
 SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
             itlwm_dpdump_handler, "I", "write 1 to IOLog data-path counters");
@@ -329,6 +339,7 @@ void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
     if (itlwm_sysctl_registered) {
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_listen);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
@@ -15640,6 +15651,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_ps);
         sysctl_register_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_listen);
         itlwm_sysctl_registered = true;
     }
     ic->ic_ampdu_tx_stop = iwx_ampdu_tx_stop;
