@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.41] — 2026-11-18
+
+### Added
+
+- Instant Hotspot click, part 11: `debug.itlwm.ihs_ie` (default -1, off) adds Apple's Instant
+  Hotspot device IE to (Re)Association Requests. It's the IE that real Macs build for an
+  Instant Hotspot join (IO80211Family `IO80211_GetInstantHotSpotIE`, AppleBCMWLANCoreMac
+  `AppleBCMWLANJoinAdapter::addInstantHSAppleDeviceIE`): vendor IE `dd 0b 00 17 f2 0b 00 01 04
+  <flags> 00 00 00`. The sysctl value is the flags byte (IO80211 builds `bit0 | bit1 << 1` from
+  two bools). AirportItlwm never sent it, a likely reason the iPhone accepts the association
+  but never starts the 4-way handshake. Set it live (`sudo sysctl debug.itlwm.ihs_ie=1`)
+  before a Control Center click; the `assoc_req` dump shows it as `221/11:0017f20b`.
+
 ## [2.7.40] — 2026-11-18
 
 ### Added

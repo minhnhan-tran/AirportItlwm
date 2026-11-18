@@ -1568,6 +1568,9 @@ ieee80211_log_ies(const char *tag, const u_int8_t *p, size_t l, size_t fixed)
  * [tlv] QoS Capability (802.11e)
  * [tlv] HT Capabilities (802.11n)
  */
+/* debug.itlwm.ihs_ie (ItlIwx.cpp): flags byte of the Instant Hotspot Apple IE, -1 = off. */
+extern int itlwm_ihs_ie;
+
 mbuf_t
 ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
     int type)
@@ -1583,6 +1586,8 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 
 	if (appie_len > sizeof(ic->ic_assoc_appie))
 		appie_len = 0;
+	int ihs = itlwm_ihs_ie;
+	u_int16_t ihs_len = (ihs >= 0 && ihs <= 0xff) ? 13 : 0;
 
 	m = ieee80211_getmgmt(MBUF_DONTWAIT, MT_DATA,
 	    2 + 2 +
@@ -1601,7 +1606,7 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 		2 + IEEE80211_WPAIE_MAXLEN : 0) +
 	    ((ic->ic_flags & IEEE80211_F_HTON) ? sizeof(struct ieee80211_ie_htcap) + sizeof(struct ieee80211_wme_info) : 0) +
         (vht_on ? sizeof(struct ieee80211_ie_vhtcap) + 2 : 0) +
-        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0) + appie_len);
+        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0) + appie_len + ihs_len);
 	if (m == NULL)
 		return NULL;
 
@@ -1660,6 +1665,21 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
     if (ni->ni_he_requested)
         frm = ieee80211_add_hecaps(frm, ic);
 
+    /*
+     * Instant Hotspot Apple device IE, as built by IO80211Family's
+     * IO80211_GetInstantHotSpotIE and AppleBCMWLANJoinAdapter::
+     * addInstantHSAppleDeviceIE: OUI 00:17:f2 type 0x0b, version 0,
+     * TLV 1 (len 4) = flags byte + 3 zero bytes.
+     */
+    if (ihs_len) {
+        static const u_int8_t ihsie[9] = { IEEE80211_ELEMID_VENDOR, 11, 0x00, 0x17, 0xf2, 0x0b, 0x00, 0x01, 0x04 };
+        memcpy(frm, ihsie, sizeof(ihsie));
+        frm += sizeof(ihsie);
+        *frm++ = (u_int8_t)ihs;
+        *frm++ = 0;
+        *frm++ = 0;
+        *frm++ = 0;
+    }
     /* IEs airportd added with APPLE80211_IOC_IE (e.g. for Instant Hotspot). */
     if (appie_len) {
         memcpy(frm, ic->ic_assoc_appie, appie_len);
