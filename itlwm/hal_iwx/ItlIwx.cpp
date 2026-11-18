@@ -141,10 +141,12 @@ static int itlwm_awdl_bss_promisc = 0;
  * channel (iPhone hotspot on 149), the P2P MAC only receives in its own time
  * event, so without these AirDrop gets no AWDL data. 0: never, 1: while AWDL
  * peer traffic is registered, 2: whenever AWDL wants data. Read by
- * AirportItlwmAWDLInterface.
+ * AirportItlwmAWDLInterface. Default 2: airportd registered no peer traffic
+ * during real AirDrop transfers (AWDLPeerTrafficActive stayed 0), so mode 1
+ * never listened.
  */
 extern int itlwm_awdl_home_listen;
-int itlwm_awdl_home_listen = 1;
+int itlwm_awdl_home_listen = 2;
 static bool itlwm_sysctl_registered = false;
 
 /*

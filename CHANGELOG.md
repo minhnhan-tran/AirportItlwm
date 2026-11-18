@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.38] — 2026-11-18
+
+### Changed
+
+- `debug.itlwm.awdl_home_listen` now defaults to 2 (listen on the shared infra channel whenever
+  AWDL wants data). Mode 1 waits for AWDL peer traffic, which airportd never registered during
+  real AirDrop transfers. In the 2026-11-18 test, `AWDLPeerTrafficActive` stayed 0 and
+  `AWDLPeerTrafficRegs` did not change, so mode 1 behaved exactly like 2.7.36 (AirDrop failed
+  both ways). With mode 2 on the iPhone hotspot (channel 149, shared with AWDL), AirDrop
+  Mac→iPhone and iPhone→Mac both succeeded. During the transfers: `AWDLListenHome` +246, AWDL
+  data RX +1,822 and TX +1,785 frames. Hotspot ping every 3 s: 0/79 lost, avg 15.7 ms, max
+  159 ms. Idle with mode 2: 0% loss, avg 7.0 ms (5.5 ms with mode 1).
+
+### Notes
+
+- The 2.7.33 off-channel listen hold uses the same `AWDLPeerTrafficActive` signal. AirDrop
+  while associated to an infra network on a different channel from AWDL is therefore likely
+  still blocked (untested).
+
 ## [2.7.37] — 2026-11-18
 
 ### Fixed
