@@ -1,4 +1,4 @@
-[![Version](https://img.shields.io/github/v/tag/laobamac/itlwm?style=flat&label=Downloads)](https://github.com/laobamac/itlwm/releases)
+[![Version](https://img.shields.io/github/v/release/minhnhan-tran/AirportItlwm?include_prereleases&style=flat&label=Downloads)](https://github.com/minhnhan-tran/AirportItlwm/releases)
 # itlwm
 
 **An Intel Wi-Fi Adapter Kernel Extension for macOS, based on the OpenBSD Project.**
