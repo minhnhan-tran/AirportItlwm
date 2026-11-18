@@ -42,10 +42,12 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
     address, which bluetoothd cannot resolve with an Intel controller; the test
     setup used an IntelBTPatcher change (not in this repo) that loads the iPhone's
     IRK into the controller's resolving list.
-  - Turn "Maximize Compatibility" off on the iPhone (5 GHz hotspot). The hotspot
-    channel can differ from the AWDL channel; since 2.7.36 that no longer causes
-    packet loss with `awdl0` up (the receive filter stays off the station MAC; see
-    `debug.itlwm.awdl_bss_promisc`).
+  - Both bands work. With "Maximize Compatibility" off the hotspot is on 5 GHz; with
+    it on, it is on 2.4 GHz (tested on channel 6: 802.11n, DHCP lease `172.20.10.2`,
+    0% loss to the gateway and to 1.1.1.1, HTTPS 200; IPv6 and long transfers on
+    2.4 GHz were not tested). The hotspot channel can differ from the AWDL channel;
+    since 2.7.36 that no longer causes packet loss with `awdl0` up (the receive
+    filter stays off the station MAC; see `debug.itlwm.awdl_bss_promisc`).
   - A saved network with `AutoJoinDisabled` does not auto-join after a reboot or a
     Wi-Fi off/on; join it from the Wi-Fi menu.
 - **AirDrop works over AWDL, with limited speed** (same test setup and AWDL boot-args
