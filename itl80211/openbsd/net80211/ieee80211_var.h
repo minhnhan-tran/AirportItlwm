@@ -674,9 +674,6 @@ struct ieee80211com {
 #ifdef USE_APPLE_SUPPLICANT
 	u_int8_t		ic_rsn_ie_override[257];
 #endif
-	/* IEs airportd asked to add to (Re)Association Requests (APPLE80211_IOC_IE). */
-	u_int8_t		ic_assoc_appie[512];
-	u_int16_t		ic_assoc_appie_len;
     u_int16_t       ic_deauth_reason;
     u_int16_t       ic_assoc_status;
 	struct ieee80211_key	ic_nw_keys[IEEE80211_GROUP_NKID];

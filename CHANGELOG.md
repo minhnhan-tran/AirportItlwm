@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.43] — 2026-11-18
+
+### Removed
+
+- Instant Hotspot investigation leftovers, now that 2.7.42 fixed the click:
+  - The 2.7.39 `setIE` path (`ic_assoc_appie`). airportd never calls `APPLE80211_IOC_IE` on
+    Tahoe, and the Instant Hotspot IE is built in (`debug.itlwm.ihs_ie`). Skywalk `setIE` answers
+    kIOReturnUnsupported again.
+  - The 2.7.40 `AirportItlwm: WCL join` logs.
+  - The 2.7.29/2.7.30 hex dumps of (Re)Association Requests/Responses and the BSS RSN IE.
+
+### Changed
+
+- One summary line per (Re)Association Request remains, now with `ihs=` (Instant Hotspot IE
+  flags byte, -1 = not sent), plus one status line per (Re)Association Response.
+
 ## [2.7.42] — 2026-11-18
 
 ### Fixed

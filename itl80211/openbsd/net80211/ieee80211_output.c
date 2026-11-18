@@ -1511,51 +1511,6 @@ ieee80211_get_deauth(struct ieee80211com *ic, struct ieee80211_node *ni,
 	return m;
 }
 
-/* Join diagnostics (no keys in these IEs). */
-static void
-ieee80211_log_hex(const char *tag, const u_int8_t *p, size_t l, size_t max)
-{
-    static const char hx[] = "0123456789abcdef";
-    char buf[2 * 96 + 1];
-    size_t off, i, n;
-
-    if (l > max)
-        l = max;
-    for (off = 0; off < l; off += 96) {
-        n = l - off < 96 ? l - off : 96;
-        for (i = 0; i < n; i++) {
-            buf[2 * i] = hx[p[off + i] >> 4];
-            buf[2 * i + 1] = hx[p[off + i] & 0xf];
-        }
-        buf[2 * n] = '\0';
-        IOLog("AirportItlwm: %s +%zu %s\n", tag, off, buf);
-    }
-}
-
-/*
- * Hex-dump a frame body whose IEs start at 'fixed', with the payload of
- * every vendor-specific IE (221) zeroed after its OUI and type: Apple's
- * hotspot IEs in (Re)Association Responses can carry SSIDs and credentials.
- */
-static void
-ieee80211_log_ies(const char *tag, const u_int8_t *p, size_t l, size_t fixed)
-{
-    u_int8_t copy[512];
-    size_t off;
-
-    if (l > sizeof(copy))
-        l = sizeof(copy);
-    memcpy(copy, p, l);
-    for (off = fixed; off + 2 <= l; off += 2 + copy[off + 1]) {
-        size_t len = copy[off + 1], body = off + 2, keep = 4;
-        if (copy[off] != IEEE80211_ELEMID_VENDOR || len <= keep)
-            continue;
-        for (size_t i = body + keep; i < body + len && i < l; i++)
-            copy[i] = 0;
-    }
-    ieee80211_log_hex(tag, copy, l, sizeof(copy));
-}
-
 /*-
  * (Re)Association request frame format:
  * [2]   Capability information
@@ -1582,10 +1537,6 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 	/* VHT is only defined for 5 GHz; do not advertise it on 2.4 GHz. */
 	int vht_on = (ic->ic_flags & IEEE80211_F_VHTON) &&
 	    !IEEE80211_IS_CHAN_2GHZ(ni->ni_chan);
-	u_int16_t appie_len = ic->ic_assoc_appie_len;
-
-	if (appie_len > sizeof(ic->ic_assoc_appie))
-		appie_len = 0;
 	int ihs = itlwm_ihs_ie;
 	u_int16_t ihs_len = (ihs >= 0 && ihs <= 0xff) ? 13 : 0;
 
@@ -1606,7 +1557,7 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 		2 + IEEE80211_WPAIE_MAXLEN : 0) +
 	    ((ic->ic_flags & IEEE80211_F_HTON) ? sizeof(struct ieee80211_ie_htcap) + sizeof(struct ieee80211_wme_info) : 0) +
         (vht_on ? sizeof(struct ieee80211_ie_vhtcap) + 2 : 0) +
-        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0) + appie_len + ihs_len);
+        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0) + ihs_len);
 	if (m == NULL)
 		return NULL;
 
@@ -1680,11 +1631,6 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
         *frm++ = 0;
         *frm++ = 0;
     }
-    /* IEs airportd added with APPLE80211_IOC_IE (e.g. for Instant Hotspot). */
-    if (appie_len) {
-        memcpy(frm, ic->ic_assoc_appie, appie_len);
-        frm += appie_len;
-    }
     size_t l = frm - mtod(m, u_int8_t *);
     mbuf_pkthdr_setlen(m, l);
     mbuf_setlen(m, l);
@@ -1697,23 +1643,13 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
         !!vht_on, ni->ni_he_requested, l);
 #endif
 
-    /*
-     * Join diagnostics: the (Re)Association Request IEs as sent and the BSS
-     * RSN IE they answer, so a join the AP accepts without starting the
-     * 4-way handshake can be compared with one that works.
-     */
-    if (ic->ic_opmode == IEEE80211_M_STA) {
-        const u_int8_t *body = mtod(m, const u_int8_t *);
-        IOLog("AirportItlwm: assoc_req capinfo=0x%04x len=%zu rsnon=%d akms=0x%x ciphers=0x%x group=0x%x mfp=%d pmkid=%d ht=%d vht=%d he=%d\n",
+    /* One line per (Re)Association Request; ihs = Instant Hotspot IE flags, -1 = not sent. */
+    if (ic->ic_opmode == IEEE80211_M_STA)
+        IOLog("AirportItlwm: assoc_req capinfo=0x%04x len=%zu rsnon=%d akms=0x%x ciphers=0x%x group=0x%x mfp=%d pmkid=%d ht=%d vht=%d he=%d ihs=%d\n",
               (unsigned)capinfo, l, !!(ic->ic_flags & IEEE80211_F_RSNON), ni->ni_rsnakms,
               ni->ni_rsnciphers, ni->ni_rsngroupcipher, !!(ic->ic_caps & IEEE80211_C_MFP),
               !!(ni->ni_flags & IEEE80211_NODE_PMKID), !!(ic->ic_flags & IEEE80211_F_HTON),
-              !!vht_on, ni->ni_he_requested);
-        ieee80211_log_ies("assoc_req", body, l,
-                          type == IEEE80211_FC0_SUBTYPE_REASSOC_REQ ? 10 : 4);
-        if (ni->ni_rsnie != NULL)
-            ieee80211_log_hex("bss rsnie", ni->ni_rsnie, 2 + ni->ni_rsnie[1], 96);
-    }
+              !!vht_on, ni->ni_he_requested, ihs_len ? ihs : -1);
 
 	return m;
 }

@@ -2759,51 +2759,6 @@ end:
 }
 #endif	/* IEEE80211_STA_ONLY */
 
-/* Join diagnostics. */
-static void
-ieee80211_log_hex(const char *tag, const u_int8_t *p, size_t l, size_t max)
-{
-    static const char hx[] = "0123456789abcdef";
-    char buf[2 * 96 + 1];
-    size_t off, i, n;
-
-    if (l > max)
-        l = max;
-    for (off = 0; off < l; off += 96) {
-        n = l - off < 96 ? l - off : 96;
-        for (i = 0; i < n; i++) {
-            buf[2 * i] = hx[p[off + i] >> 4];
-            buf[2 * i + 1] = hx[p[off + i] & 0xf];
-        }
-        buf[2 * n] = '\0';
-        IOLog("AirportItlwm: %s +%zu %s\n", tag, off, buf);
-    }
-}
-
-/*
- * Hex-dump a frame body whose IEs start at 'fixed', with the payload of
- * every vendor-specific IE (221) zeroed after its OUI and type: Apple's
- * hotspot IEs in (Re)Association Responses can carry SSIDs and credentials.
- */
-static void
-ieee80211_log_ies(const char *tag, const u_int8_t *p, size_t l, size_t fixed)
-{
-    u_int8_t copy[512];
-    size_t off;
-
-    if (l > sizeof(copy))
-        l = sizeof(copy);
-    memcpy(copy, p, l);
-    for (off = fixed; off + 2 <= l; off += 2 + copy[off + 1]) {
-        size_t len = copy[off + 1], body = off + 2, keep = 4;
-        if (copy[off] != IEEE80211_ELEMID_VENDOR || len <= keep)
-            continue;
-        for (size_t i = body + keep; i < body + len && i < l; i++)
-            copy[i] = 0;
-    }
-    ieee80211_log_hex(tag, copy, l, sizeof(copy));
-}
-
 /*-
  * (Re)Association response frame format:
  * [2]   Capability information
@@ -2851,12 +2806,10 @@ ieee80211_recv_assoc_resp(struct ieee80211com *ic, mbuf_t m,
     status =  LE_READ_2(frm); frm += 2;
 
     ic->ic_assoc_status = status;
-    /* Join diagnostics: status, then AID and IEs of the response. */
+    /* One line per (Re)Association Response. */
     IOLog("AirportItlwm: assoc_resp reassoc=%d capinfo=0x%04x status=%u len=%zu\n",
           reassoc, (unsigned)capinfo, (unsigned)status,
           efrm > frm ? (size_t)(efrm - frm) : 0);
-    if (efrm > frm)
-        ieee80211_log_ies("assoc_resp", frm, efrm - frm, 2);
 #ifndef AIRPORT_WCL
     if (status == IEEE80211_STATUS_SUCCESS)
 #endif
