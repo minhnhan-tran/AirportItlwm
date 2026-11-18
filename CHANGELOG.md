@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.46] — 2026-11-18
+
+### Changed
+
+- `debug.itlwm.awdl_infra_nth` defaults to 1, so no off-channel AWDL listen is held while AWDL
+  wants data. 2.7.45 test (home Wi-Fi on 5 GHz ch 36, AWDL on ch 149): with the old default
+  of 2, the infra hold dropped about half of the Mac's own off-channel listens
+  (AWDLListenInfraHold +256 vs AWDLListenStarted +267 in 94 s), and iPhone-to-Mac AirDrop
+  stalled 2 of 2 times. With 1, it completed, though slowly (about 1.5 Mbit/s), because
+  airportd keeps the Mac on its low-power channel sequence. Without AWDL data the hold is
+  unchanged; set it to 2 or more for the old behaviour.
+
 ## [2.7.45] — 2026-11-18
 
 ### Added
