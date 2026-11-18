@@ -718,6 +718,92 @@ setRSN_IE(struct apple80211_rsn_ie_data *data)
 #endif
 }
 
+/* Same IE, for add/remove: element ID, plus OUI and type for vendor IEs. */
+static bool
+awIESame(const uint8_t *a, const uint8_t *b)
+{
+    if (a[0] != b[0])
+        return false;
+    if (a[0] != IEEE80211_ELEMID_VENDOR || a[1] < 4 || b[1] < 4)
+        return true;
+    return memcmp(a + 2, b + 2, 4) == 0;
+}
+
+/*
+ * airportd adds and removes custom IEs per frame type (APPLE80211_IOC_IE).
+ * This used to return kIOReturnUnsupported, so none reached the air. The
+ * (Re)Association Request ones are kept in ic_assoc_appie and appended by
+ * ieee80211_get_assoc_req; the Instant Hotspot join may need them. Every call
+ * is logged (IE id/len, plus OUI-type for vendor IEs; no payload).
+ */
+IOReturn AirportItlwmSkywalkInterface::
+setIE(struct apple80211_ie_data *data)
+{
+    static const char hx[] = "0123456789abcdef";
+    if (data == NULL || data->ie_len > sizeof(data->ie))
+        return kIOReturnBadArgument;
+    const uint8_t *p = data->ie;
+    uint32_t len = data->ie_len, off;
+    char sum[200];
+    size_t so = 0;
+    for (off = 0; off + 2 <= len && off + 2 + p[off + 1] <= len && so + 24 < sizeof(sum); off += 2 + p[off + 1]) {
+        uint8_t id = p[off], l = p[off + 1];
+        sum[so++] = ' ';
+        for (int d = 100; d >= 1; d /= 10)
+            if (id >= d || d == 1) sum[so++] = (char)('0' + (id / d) % 10);
+        sum[so++] = '/';
+        for (int d = 100; d >= 1; d /= 10)
+            if (l >= d || d == 1) sum[so++] = (char)('0' + (l / d) % 10);
+        if (id == IEEE80211_ELEMID_VENDOR && l >= 4) {
+            sum[so++] = ':';
+            for (int i = 0; i < 4; i++) {
+                sum[so++] = hx[p[off + 2 + i] >> 4];
+                sum[so++] = hx[p[off + 2 + i] & 0xf];
+            }
+        }
+    }
+    sum[so] = '\0';
+    IOLog("AirportItlwm: setIE flags=0x%x add=%u sig=%u len=%u%s%s\n", data->frame_type_flags,
+          data->add, data->signature_len, len, sum, off != len ? " (trailing)" : "");
+    struct ieee80211com *ic = fHalService ? fHalService->get80211Controller() : NULL;
+    if (ic == NULL || !(data->frame_type_flags & APPLE80211_IE_FLAG_ASSOC_REQ))
+        return kIOReturnSuccess;
+    uint8_t nb[sizeof(ic->ic_assoc_appie)];
+    size_t nl = 0, cl = ic->ic_assoc_appie_len;
+    if (cl > sizeof(ic->ic_assoc_appie))
+        cl = 0;
+    /* Keep the stored IEs that this call does not name; add=0 with no IEs clears all. */
+    for (size_t o = 0; (data->add || len) && o + 2 <= cl && o + 2 + ic->ic_assoc_appie[o + 1] <= cl;
+         o += 2 + ic->ic_assoc_appie[o + 1]) {
+        const uint8_t *e = &ic->ic_assoc_appie[o];
+        bool named = false;
+        for (uint32_t q = 0; q + 2 <= len && q + 2 + p[q + 1] <= len; q += 2 + p[q + 1])
+            if (awIESame(e, &p[q])) { named = true; break; }
+        if (!named && nl + 2 + e[1] <= sizeof(nb)) {
+            memcpy(nb + nl, e, 2 + e[1]);
+            nl += 2 + e[1];
+        }
+    }
+    /*
+     * Only vendor IEs are appended. net80211 already builds the standard ones,
+     * and duplicates could break every join. Microsoft (00:50:f2: WPA/WME/WPS)
+     * is skipped for the same reason.
+     */
+    if (data->add)
+        for (uint32_t q = 0; q + 2 <= len && q + 2 + p[q + 1] <= len; q += 2 + p[q + 1])
+            if (p[q] == IEEE80211_ELEMID_VENDOR && p[q + 1] >= 4 &&
+                !(p[q + 2] == 0x00 && p[q + 3] == 0x50 && p[q + 4] == 0xf2) &&
+                nl + 2 + p[q + 1] <= sizeof(nb)) {
+                memcpy(nb + nl, &p[q], 2 + p[q + 1]);
+                nl += 2 + p[q + 1];
+            }
+    ic->ic_assoc_appie_len = 0;
+    memcpy(ic->ic_assoc_appie, nb, nl);
+    ic->ic_assoc_appie_len = (u_int16_t)nl;
+    IOLog("AirportItlwm: assoc appie now %zu bytes\n", nl);
+    return kIOReturnSuccess;
+}
+
 IOReturn AirportItlwmSkywalkInterface::
 getAP_IE_LIST(struct apple80211_ap_ie_data *data)
 {

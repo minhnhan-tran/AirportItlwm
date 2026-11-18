@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.39] — 2026-11-18
+
+### Fixed
+
+- Instant Hotspot click, part 10. On Sequoia/Tahoe (Skywalk) the driver answered every
+  `APPLE80211_IOC_IE` (`setIE`) with kIOReturnUnsupported, so no IE airportd wanted in a
+  (Re)Association Request was ever transmitted. That matches the click symptom: the iPhone
+  accepts the association but never sends EAPOL msg 1/4, while auto-join and password joins to
+  the same hotspot complete the 4-way handshake. ASSOC_REQ vendor IEs (except Microsoft
+  00:50:f2, which net80211 already builds) are now kept, replaced by OUI and type, removed by
+  add=0, and appended to every (Re)Association Request. Every call is logged as `AirportItlwm: setIE` (flags, add,
+  signature length, IE ids/lengths and vendor OUI-type, no payload). The existing `assoc_req`
+  dump shows them on the air.
+
 ## [2.7.38] — 2026-11-18
 
 ### Changed

@@ -304,7 +304,7 @@ public:
     virtual IOReturn setSTA_DISASSOCIATE(apple80211_sta_disassoc_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setSTA_DEAUTH(apple80211_sta_disassoc_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setRSN_CONF(apple80211_rsn_conf_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn setIE(apple80211_ie_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    virtual IOReturn setIE(apple80211_ie_data *) AIRPORT_SKYWALK_OVERRIDE;
     virtual IOReturn setWOW_TEST(apple80211_wow_test_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setSCANCACHE_CLEAR(void *) AIRPORT_SKYWALK_OVERRIDE;
 #if defined(AIRPORT_WCL) && __IO80211_TARGET != __MAC_15_2

@@ -1579,6 +1579,10 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 	/* VHT is only defined for 5 GHz; do not advertise it on 2.4 GHz. */
 	int vht_on = (ic->ic_flags & IEEE80211_F_VHTON) &&
 	    !IEEE80211_IS_CHAN_2GHZ(ni->ni_chan);
+	u_int16_t appie_len = ic->ic_assoc_appie_len;
+
+	if (appie_len > sizeof(ic->ic_assoc_appie))
+		appie_len = 0;
 
 	m = ieee80211_getmgmt(MBUF_DONTWAIT, MT_DATA,
 	    2 + 2 +
@@ -1597,7 +1601,7 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
 		2 + IEEE80211_WPAIE_MAXLEN : 0) +
 	    ((ic->ic_flags & IEEE80211_F_HTON) ? sizeof(struct ieee80211_ie_htcap) + sizeof(struct ieee80211_wme_info) : 0) +
         (vht_on ? sizeof(struct ieee80211_ie_vhtcap) + 2 : 0) +
-        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0));
+        ((ic->ic_flags & IEEE80211_F_HEON) ? (sizeof(struct ieee80211_he_cap_elem) + 2 + 1 + sizeof(struct ieee80211_he_mcs_nss_supp) + IEEE80211_HE_PPE_THRES_MAX_LEN) : 0) + appie_len);
 	if (m == NULL)
 		return NULL;
 
@@ -1656,6 +1660,11 @@ ieee80211_get_assoc_req(struct ieee80211com *ic, struct ieee80211_node *ni,
     if (ni->ni_he_requested)
         frm = ieee80211_add_hecaps(frm, ic);
 
+    /* IEs airportd added with APPLE80211_IOC_IE (e.g. for Instant Hotspot). */
+    if (appie_len) {
+        memcpy(frm, ic->ic_assoc_appie, appie_len);
+        frm += appie_len;
+    }
     size_t l = frm - mtod(m, u_int8_t *);
     mbuf_pkthdr_setlen(m, l);
     mbuf_setlen(m, l);
