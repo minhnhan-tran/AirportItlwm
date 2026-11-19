@@ -44,6 +44,9 @@ struct AWDLDataPathStatsABI {
     uint8_t  rest[0x800 - 0x20];
 };
 static_assert(sizeof(AWDLDataPathStatsABI) == 0x800, "AWDL data path stats size");
+// Posts a firmware-style datapath event to the family's peer manager (event 51 = peer cache control).
+extern "C" IOReturn IO80211SkywalkInterface_reportDataPathEvents(IO80211VirtualInterface *, uint32_t, void *, size_t, bool)
+    __asm__("__ZN23IO80211SkywalkInterface20reportDataPathEventsEjPvmb");
 extern "C" IOReturn IO80211SkywalkInterface_updateInterfaceDataStats(IO80211VirtualInterface *, AWDLDataPathStatsABI *)
     __asm__("__ZN23IO80211SkywalkInterface24updateInterfaceDataStatsEP36apple80211_data_path_interface_stats");
 
@@ -315,6 +318,8 @@ private:
     // Stage 3 step 1 (-itlawdltx): send a PSF and an MI in the peer's AW
     // during each aligned listen dwell.
     static void txTimerFired(OSObject *owner, IOTimerEventSource *sender);
+    static void peerCacheTimerFired(OSObject *owner, IOTimerEventSource *sender);
+    void flushPeerCacheDone();
     static void rocStartedThunk(void *arg, uint8_t chan);
     void scheduleTx(uint8_t chan, uint64_t slotStartUs);
     int64_t effectiveListenLeadUs() const;
@@ -375,6 +380,15 @@ public:
     uint64_t fDataTxErr;
 private:
     IOTimerEventSource *fTxTimer;
+    // Peer-cache completions owed to IO80211Family (see setPEER_CACHE_CONTROL).
+    static constexpr unsigned kPeerCacheQLen = 16;
+    struct PeerCacheDone { uint32_t op; uint8_t mac[6]; };
+    IOTimerEventSource *fPeerCacheTimer;
+    IOSimpleLock *fPeerCacheLock;
+    PeerCacheDone fPeerCacheQ[kPeerCacheQLen];
+    unsigned fPeerCacheQCount;
+    uint64_t fPeerCacheDone;
+    uint64_t fPeerCacheDrop;
     uint8_t fTxChan;
     uint8_t fTxPhase;               // 0 idle, 1 PSF next, 2 MI next, 3 data flush
     volatile uint8_t fRocNotifyChan;

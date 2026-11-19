@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.55] — 2026-11-19
+
+### Fixed
+- AWDL: complete the peer-cache handshake with IO80211Family. After `setPEER_CACHE_CONTROL`
+  (add = op 0, delete = op 2) the family sleeps up to 3 s in `waitForPeerManagerEvent` for
+  firmware to report completion (event 51, op+1), which the driver never sent. Every
+  RemoteCamera traffic registration therefore stalled ~6 s, then failed with "peer cache is
+  full", so wireless Continuity Camera hit `stream activation timeout`. The driver now echoes
+  the completion from a timer (after the ioctl returns). New IORegistry property
+  `AWDLPeerCacheDone`. Not yet verified on hardware.
+
 ## [2.7.54] — 2026-11-19
 
 ### Fixed
