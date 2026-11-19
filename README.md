@@ -40,8 +40,9 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   - Waking the hotspot needs a Bluetooth LE connection from the Mac to the iPhone,
     so it depends on a working Intel Bluetooth stack. The iPhone uses a private
     address, which bluetoothd cannot resolve with an Intel controller; the test
-    setup used an IntelBTPatcher change (not in this repo) that loads the iPhone's
-    IRK into the controller's resolving list.
+    setup used IntelBTPatcher 2.6.1 from
+    [minhnhan-tran/IntelBluetoothFirmware](https://github.com/minhnhan-tran/IntelBluetoothFirmware),
+    which loads the iPhone's IRK into the controller's resolving list (see below).
   - Both bands work. With "Maximize Compatibility" off the hotspot is on 5 GHz; with
     it on, it is on 2.4 GHz (tested on channel 6: 802.11n, DHCP lease `172.20.10.2`,
     0% loss to the gateway and to 1.1.1.1, HTTPS 200; IPv6 and long transfers on
@@ -75,6 +76,49 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   - The `AWDLPairStats` property on the AWDL interface in `ioreg` shows how the
     Mac's and the peer's channel slots overlap, and `dps=<calls>/<result>` for the
     data-count reports.
+
+### Boot-args and kexts for all Continuity features
+
+AirDrop, Handoff, Universal Clipboard and iPhone Instant Hotspot need the Wi-Fi
+boot-args and a patched Bluetooth stack. Tested set (MacPro7,1 SMBIOS, Intel AX210,
+macOS Tahoe 26.7.3, iPhone 16 Pro), in OpenCore `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 > boot-args`:
+
+```
+-lilubetaall -itlawdl -itlawdlp2p -itlawdlpromisc -itlawdllisten -itlawdltx -itlawdlaw -itlawdldata -ibtcompatbeta -btlfxadvsets
+```
+
+| Boot-arg | Kext | Needed for |
+|---|---|---|
+| `-itlawdl` `-itlawdlp2p` `-itlawdlpromisc` `-itlawdllisten` `-itlawdltx` `-itlawdlaw` `-itlawdldata` | AirportItlwm | `awdl0`: AirDrop, Universal Clipboard, Handoff data (boot-args are cumulative: start from `-itlawdl`) |
+| `-lilubetaall` | Lilu | lets Lilu plugins load on macOS 26 |
+| `-ibtcompatbeta` | IntelBTPatcher | lets the patcher load on macOS 26 |
+| `-btlfxadvsets` | BlueToolFixup | BLE advertising and connection patches in `bluetoothd` (Handoff, Instant Hotspot) |
+| `itlwm_cc=<CC>` (optional) | AirportItlwm | country code, e.g. `itlwm_cc=VN` |
+| `itlwm_he=1` (optional) | AirportItlwm | enable Wi-Fi 6 (HE) |
+| `-ibtcompatdbg`, `-itlawdlnopeerlisten`, `itlawdllistench=<n>` (optional) | IntelBTPatcher / AirportItlwm | diagnostics only |
+
+Bluetooth kexts used (load order: Lilu first):
+
+- **BlueToolFixup** with the `-btlfxadvsets` patch set for macOS 26.7.3:
+  [minhnhan-tran/BlueToolFixup-FixA2DP-BLE](https://github.com/minhnhan-tran/BlueToolFixup-FixA2DP-BLE/tree/pr/btlfx-advsets)
+  (branch `pr/btlfx-advsets`). Upstream BlueToolFixup does not have `-btlfxadvsets`,
+  and the patches are matched to the macOS 26.7.3 (25G342) `bluetoothd`. All results in
+  this README were measured with BlueToolFixup **2.7.5** from that branch. The branch is
+  now at 2.7.7 (adds a Filter Accept List RPA substitution for BLE connects to the iPhone);
+  2.7.6 and 2.7.7 have not been tested together with this driver.
+- **IntelBluetoothFirmware / IntelBTPatcher / IntelBluetoothInjector**:
+  [minhnhan-tran/IntelBluetoothFirmware](https://github.com/minhnhan-tran/IntelBluetoothFirmware)
+  (IntelBTPatcher 2.6.1 or later).
+- **Instant Hotspot also needs the iPhone's IRK** in the controller's resolving list,
+  or the Mac's Bluetooth LE connect to the iPhone times out. Set it once with
+  `sudo scripts/ibt-irk.sh set "Public <iPhone BLE address>"` (from that repo; reads the
+  System keychain, never prints the key), then persist it across reboots with
+  `sudo scripts/ibt-irk.sh oc <EFI>/EFI/OC/config.plist`. The key can also be given
+  as boot-arg `ibtirk=` or NVRAM `ibt-irk`. Without a key IntelBTPatcher changes
+  nothing, and Instant Hotspot from the Wi-Fi menu does not wake the hotspot.
+- NVRAM `bluetoothExternalDongleFailed` and `bluetoothInternalControllerInfo` must be set
+  through OpenCore (see the BlueToolFixup README).
+
 - **Continuity Camera works over USB only.** With the iPhone connected by cable it
   appears as a camera and works (tested in Photo Booth). Wirelessly it does not
   appear in FaceTime or Photo Booth: the Mac's Continuity Camera agent reads the

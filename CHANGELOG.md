@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.53] — 2026-11-19
+
+### Changed
+
+- README: new "Boot-args and kexts for all Continuity features" section: the tested boot-arg
+  set (Wi-Fi AWDL, Lilu, IntelBTPatcher, BlueToolFixup), what each is for, links to the
+  BlueToolFixup (`-btlfxadvsets`) and IntelBluetoothFirmware forks, and how to give
+  IntelBTPatcher the iPhone IRK for Instant Hotspot. The results were measured with BlueToolFixup
+  2.7.5 (branch is at 2.7.7, untested here) and IntelBTPatcher 2.6.1. Documentation only.
+
 ## [2.7.52] — 2026-11-19
 
 ### Changed
