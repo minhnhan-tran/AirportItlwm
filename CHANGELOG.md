@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.57] — 2026-11-19
+
+### Fixed
+- AWDL: fix inverted status byte and payload sizes in `flushPeerCacheDone` (2.7.56). In
+  `apple80211_actionFrame_status` (event 69, 7 bytes), byte `+6` is a status code where `0` means
+  acked (`WLC_E_STATUS_SUCCESS`) and non-zero means `'DID NOT ack'` (causing 10 UMI retries and
+  `EnsembleUMIStatus = 3` failure). Also restore the full `0x1d0`-byte buffer size for event 51
+  (`apple80211_peer_cache_control`).
+
 ## [2.7.56] — 2026-11-19
 
 ### Fixed

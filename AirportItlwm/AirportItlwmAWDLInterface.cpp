@@ -1807,18 +1807,23 @@ trySendPendingOOB()
         // Real firmware reports unicast action-frame TX status (event 69). The family waits for it
         // (EnsembleUMIStatusDone, 3 s) after sendUnicastMI; without it Continuity Camera's
         // RemoteCamera traffic registration fails. Broadcast MIs have no peer to complete.
-        if (!(fOOBReqDst[0] & 1) && fPeerCacheTimer && fPeerCacheLock) {
+        const bool nonZero = (fOOBReqDst[0] | fOOBReqDst[1] | fOOBReqDst[2] |
+                              fOOBReqDst[3] | fOOBReqDst[4] | fOOBReqDst[5]) != 0;
+        if (nonZero && !(fOOBReqDst[0] & 1) && fPeerCacheTimer && fPeerCacheLock) {
+            bool queued = false;
             IOSimpleLockLock(fPeerCacheLock);
             if (fPeerCacheQCount < kPeerCacheQLen) {
                 PeerCacheDone &e = fPeerCacheQ[fPeerCacheQCount++];
                 e.evt = 69;
                 e.op = 0;
                 memcpy(e.mac, fOOBReqDst, 6);
+                queued = true;
             } else {
                 fPeerCacheDrop++;
             }
             IOSimpleLockUnlock(fPeerCacheLock);
-            fPeerCacheTimer->setTimeoutUS(300);
+            if (queued)
+                fPeerCacheTimer->setTimeoutUS(300);
         }
         publishTxState();
     }
@@ -2733,18 +2738,21 @@ flushPeerCacheDone()
         fPeerCacheQCount--;
         memmove(&fPeerCacheQ[0], &fPeerCacheQ[1], fPeerCacheQCount * sizeof(PeerCacheDone));
         IOSimpleLockUnlock(fPeerCacheLock);
-        uint8_t ind[0x40] = {};
+        uint8_t ind[0x1d0] = {};
+        size_t indLen = sizeof(ind);
         if (e.evt == 69) {
-            // apple80211_actionFrame_status: peer MAC at +0, acked flag at +6
+            // apple80211_actionFrame_status (7 bytes): peer MAC at +0..5, status at +6
+            // (0 = WLC_E_STATUS_SUCCESS / acked; non-zero = DID NOT ack).
             memcpy(ind, e.mac, 6);
-            ind[6] = 1;
+            ind[6] = 0;
+            indLen = 7;
         } else {
-            // struct apple80211_peer_cache_control: version, opcode, peer MAC at +8.
+            // struct apple80211_peer_cache_control (0x1d0 bytes): version, opcode, peer MAC at +8.
             *(uint32_t *)(ind + 0) = 1;
             *(uint32_t *)(ind + 4) = e.op;
             memcpy(ind + 8, e.mac, 6);
         }
-        IO80211SkywalkInterface_reportDataPathEvents(this, e.evt, ind, sizeof(ind), false);
+        IO80211SkywalkInterface_reportDataPathEvents(this, e.evt, ind, indLen, false);
         fPeerCacheDone++;
         setProperty("AWDLPeerCacheDone", fPeerCacheDone, 64);
     }
