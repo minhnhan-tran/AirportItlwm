@@ -98,7 +98,7 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 - Device support follows the upstream hardware table; Tahoe compatibility still
   requires validation on each adapter.
 
-Download Sequoia or Tahoe **Release** and **Debug** builds from [this fork's Releases](https://github.com/laobamac/itlwm/releases).
+Download Sequoia or Tahoe **Release** and **Debug** builds from [this fork's Releases](https://github.com/minhnhan-tran/AirportItlwm/releases).
 CI builds both systems and updates the alpha release after all builds pass on `main`.
 
 To build locally, install Xcode and Python 3, and check out MacKernelSDK commit
