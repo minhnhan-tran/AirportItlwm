@@ -1079,6 +1079,12 @@ getCARD_CAPABILITIES(OSObject *object,
     // bit 0 is set; AppleBCMWLANCore sets the same bit when its firmware supports AWDL.
     if (fAWDLEnabled) {
         cd->capabilities[4] |= 1;
+#if __IO80211_TARGET != __MAC_15_2
+        // Card capability 142 (byte 17, bit 6) gates IO80211Peer::getLastRxUnicastLinkActivity /
+        // getLastQueuePacket calling getLastRxUnicastLinkActivityTime / getLastQueuePacketTime on
+        // the Skywalk interface so cached AWDL peers are not evicted when data bypasses IO80211Peer.
+        cd->capabilities[17] |= 0x40;
+#endif
         cd->capabilities[2] |= 0x10;
         cd->capabilities[5] |= 0x01;
         // Capability 29 (byte 3, 0x20): IO80211AWDLPeerManager::configureValidAWDLChannels

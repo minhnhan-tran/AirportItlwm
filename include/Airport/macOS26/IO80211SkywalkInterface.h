@@ -187,7 +187,7 @@ private: virtual void _abi_0df8() __asm__("__ZN23IO80211SkywalkInterface10detach
 private: virtual void _abi_0e00() __asm__("__ZN23IO80211SkywalkInterface21setDebugTrafficReportEb"); public:
 private: virtual void _abi_0e08() __asm__("__ZN23IO80211SkywalkInterface25getDataPathInterfaceStatsEP36apple80211_data_path_interface_stats"); public:
 private: virtual void _abi_0e10() __asm__("__ZN23IO80211SkywalkInterface20getDataPathPeerStatsEP31apple80211_data_path_peer_stats"); public:
-private: virtual void _abi_0e18() __asm__("__ZN23IO80211SkywalkInterface22getLastQueuePacketTimeEP10ether_addr"); public:
+virtual uint64_t getLastQueuePacketTime(ether_addr*);  // 0xe18: mach_absolute_time of last queued TX to peer (base returns 0)
 virtual uint64_t getLastRxUnicastLinkActivityTime(ether_addr*);  // 0xe20: mach_absolute_time of last unicast RX from peer (base returns 0)
 private: virtual void _abi_0e28() __asm__("__ZN23IO80211SkywalkInterface24updateInterfaceDataStatsEP36apple80211_data_path_interface_stats"); public:
 private: virtual void _abi_0e30() __asm__("__ZN23IO80211SkywalkInterface19updatePeerDataStatsEP31apple80211_data_path_peer_stats"); public:

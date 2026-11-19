@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.59] — 2026-11-19
+
+### Fixed
+
+- **AWDL / Continuity Camera**: Report card capability 142 (`capabilities[17] |= 0x40`) on macOS 26 so `IO80211Peer::getLastRxUnicastLinkActivity()` and `getLastQueuePacket()` actually query `AirportItlwmAWDLInterface` instead of skipping the vtable call; also implement `getLastQueuePacketTime` (`0xe18`) alongside `getLastRxUnicastLinkActivityTime` (`0xe20`) and check frame length and destination MAC before recording unicast RX activity.
+
 ## [2.7.58] — 2026-11-19
 
 ### Fixed
