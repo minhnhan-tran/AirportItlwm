@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.58] — 2026-11-19
+
+### Fixed
+- AWDL: override `IO80211SkywalkInterface::getLastRxUnicastLinkActivityTime` (vtable 0xe20). The
+  base returns 0, so IO80211Family's `monitorCachedPeerActivity` saw every peer as idle
+  ("Cache REMOVAL of AirPlay Peer ... due to inactivity pkts:0 rxu:5044ms") and evicted the
+  iPhone during Continuity Camera streaming despite thousands of RX frames. The driver now records
+  a per-peer mach_absolute_time on each unicast AWDL data RX and returns it. Not yet verified on
+  hardware.
+
 ## [2.7.57] — 2026-11-19
 
 ### Fixed

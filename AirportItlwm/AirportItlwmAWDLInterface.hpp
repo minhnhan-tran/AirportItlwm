@@ -148,6 +148,8 @@ public:
     IOReturn setAWDL_ELECTION_RSSI_THRESHOLDS(apple80211_awdl_election_rssi_thresholds *) override;
     IOReturn setAWDL_PRESENCE_MODE(apple80211_awdl_presence_mode *) override;
     IOReturn setPEER_CACHE_CONTROL(apple80211_peer_cache_control *) override;
+    uint64_t getLastRxUnicastLinkActivityTime(ether_addr *) override;
+    void notePeerRx(const uint8_t *mac);
     IOReturn setAWDL_OOB_REQUEST(apple80211_awdl_oob_request *) override;
     IOReturn setAWDL_SYNC_FRAME_TEMPLATE(apple80211_awdl_sync_frame_template *) override;
     IOReturn setAWDL_ELECTION_PARAMS(apple80211_awdl_election_params *) override;
@@ -383,6 +385,10 @@ private:
     // Peer-cache completions owed to IO80211Family (see setPEER_CACHE_CONTROL).
     static constexpr unsigned kPeerCacheQLen = 16;
     struct PeerCacheDone { uint32_t evt; uint32_t op; uint8_t mac[6]; };  // evt 51 = peer cache, 69 = unicast AF tx status
+    // Last unicast RX time per peer; IO80211Family evicts peers whose time is stale (base returns 0).
+    struct PeerRxTime { uint8_t mac[6]; uint64_t t; };
+    static constexpr unsigned kPeerRxN = 8;
+    PeerRxTime fPeerRx[kPeerRxN];
     IOTimerEventSource *fPeerCacheTimer;
     IOSimpleLock *fPeerCacheLock;
     PeerCacheDone fPeerCacheQ[kPeerCacheQLen];

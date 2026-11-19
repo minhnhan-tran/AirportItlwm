@@ -117,6 +117,8 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     size_t len = mbuf_len(m);
     const struct ieee80211_frame *wh = (const struct ieee80211_frame *)p;
     size_t hdr = sizeof(*wh);
+    if (!(wh->i_addr1[0] & 1) && len >= sizeof(*wh))
+        awdl->notePeerRx(wh->i_addr2);
     if (ieee80211_has_qos(wh)) {
         uint16_t qos = p[hdr] | (p[hdr + 1] << 8);
         hdr += 2;
@@ -2415,6 +2417,7 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fTxTimer = nullptr;
     fPeerCacheTimer = nullptr;
     fPeerCacheLock = nullptr;
+    bzero(fPeerRx, sizeof(fPeerRx));
     fPeerCacheQCount = 0;
     fPeerCacheDone = 0;
     fPeerCacheDrop = 0;
@@ -2715,6 +2718,40 @@ setPEER_CACHE_CONTROL(apple80211_peer_cache_control *d)
             fPeerCacheTimer->setTimeoutUS(300);
     }
     return kIOReturnSuccess;
+}
+
+void AirportItlwmAWDLInterface::
+notePeerRx(const uint8_t *mac)
+{
+    if (!fPeerCacheLock)
+        return;
+    uint64_t now = mach_absolute_time();
+    IOSimpleLockLock(fPeerCacheLock);
+    PeerRxTime *slot = nullptr, *oldest = &fPeerRx[0];
+    for (unsigned i = 0; i < kPeerRxN; i++) {
+        if (!memcmp(fPeerRx[i].mac, mac, 6)) { slot = &fPeerRx[i]; break; }
+        if (fPeerRx[i].t < oldest->t) oldest = &fPeerRx[i];
+    }
+    if (!slot) {
+        slot = oldest;
+        memcpy(slot->mac, mac, 6);
+    }
+    slot->t = now;
+    IOSimpleLockUnlock(fPeerCacheLock);
+}
+
+uint64_t AirportItlwmAWDLInterface::
+getLastRxUnicastLinkActivityTime(ether_addr *a)
+{
+    uint64_t t = 0;
+    if (!a || !fPeerCacheLock)
+        return 0;
+    IOSimpleLockLock(fPeerCacheLock);
+    for (unsigned i = 0; i < kPeerRxN; i++) {
+        if (fPeerRx[i].t && !memcmp(fPeerRx[i].mac, a->octet, 6)) { t = fPeerRx[i].t; break; }
+    }
+    IOSimpleLockUnlock(fPeerCacheLock);
+    return t;
 }
 
 void AirportItlwmAWDLInterface::
