@@ -76,6 +76,28 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   - The `AWDLPairStats` property on the AWDL interface in `ioreg` shows how the
     Mac's and the peer's channel slots overlap, and `dps=<calls>/<result>` for the
     data-count reports.
+- **Continuity Camera works over USB only.** With the iPhone connected by cable it
+  appears as a camera and works (tested in Photo Booth). Wirelessly it does not
+  appear in FaceTime or Photo Booth: the Mac's Continuity Camera agent reads the
+  iPhone as `nearby:0` (the same iPhone reads `nearby:1` on an Apple Silicon Mac),
+  and the agent's logic only offers a wireless camera once that flag is set.
+  `nearbyd` on this setup logs "Ranging is not supported on this platform" and
+  interrupts its sessions with "BluetoothNotAvailable", which may implicate the
+  Bluetooth stack rather than the Wi-Fi driver; this is unconfirmed. There is no
+  preference or boot-arg to bypass the check (`CMCaptureDebug` only controls debug
+  logging). The wireless video path over AWDL is therefore untested, and the cause
+  is undetermined.
+- **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
+  (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
+  shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
+  macOS requests a device certificate (DCRT) from `mobileactivationd`, which needs
+  an Apple coprocessor (T2 / bridgeOS). A Hackintosh has none: the log shows
+  `IODeviceTree:/efi/platform` without `apple-coprocessor-version` and
+  `bridgeOS available: false`, so the request fails locally (`MobileActivation`
+  Code=-3) before any Apple server is contacted. This is not a Wi-Fi or Bluetooth
+  driver fault, and no workaround is known.
+- Device support follows the upstream hardware table; Tahoe compatibility still
+  requires validation on each adapter.
 
 ### Boot-args and kexts for all Continuity features
 
@@ -118,29 +140,6 @@ Bluetooth kexts used (load order: Lilu first):
   nothing, and Instant Hotspot from the Wi-Fi menu does not wake the hotspot.
 - NVRAM `bluetoothExternalDongleFailed` and `bluetoothInternalControllerInfo` must be set
   through OpenCore (see the BlueToolFixup README).
-
-- **Continuity Camera works over USB only.** With the iPhone connected by cable it
-  appears as a camera and works (tested in Photo Booth). Wirelessly it does not
-  appear in FaceTime or Photo Booth: the Mac's Continuity Camera agent reads the
-  iPhone as `nearby:0` (the same iPhone reads `nearby:1` on an Apple Silicon Mac),
-  and the agent's logic only offers a wireless camera once that flag is set.
-  `nearbyd` on this setup logs "Ranging is not supported on this platform" and
-  interrupts its sessions with "BluetoothNotAvailable", which may implicate the
-  Bluetooth stack rather than the Wi-Fi driver; this is unconfirmed. There is no
-  preference or boot-arg to bypass the check (`CMCaptureDebug` only controls debug
-  logging). The wireless video path over AWDL is therefore untested, and the cause
-  is undetermined.
-- **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
-  (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
-  shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
-  macOS requests a device certificate (DCRT) from `mobileactivationd`, which needs
-  an Apple coprocessor (T2 / bridgeOS). A Hackintosh has none: the log shows
-  `IODeviceTree:/efi/platform` without `apple-coprocessor-version` and
-  `bridgeOS available: false`, so the request fails locally (`MobileActivation`
-  Code=-3) before any Apple server is contacted. This is not a Wi-Fi or Bluetooth
-  driver fault, and no workaround is known.
-- Device support follows the upstream hardware table; Tahoe compatibility still
-  requires validation on each adapter.
 
 Download Sequoia or Tahoe **Release** and **Debug** builds from [this fork's Releases](https://github.com/minhnhan-tran/AirportItlwm/releases).
 CI builds both systems and updates the alpha release after all builds pass on `main`.
