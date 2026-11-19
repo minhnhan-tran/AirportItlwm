@@ -382,7 +382,7 @@ private:
     IOTimerEventSource *fTxTimer;
     // Peer-cache completions owed to IO80211Family (see setPEER_CACHE_CONTROL).
     static constexpr unsigned kPeerCacheQLen = 16;
-    struct PeerCacheDone { uint32_t op; uint8_t mac[6]; };
+    struct PeerCacheDone { uint32_t evt; uint32_t op; uint8_t mac[6]; };  // evt 51 = peer cache, 69 = unicast AF tx status
     IOTimerEventSource *fPeerCacheTimer;
     IOSimpleLock *fPeerCacheLock;
     PeerCacheDone fPeerCacheQ[kPeerCacheQLen];
