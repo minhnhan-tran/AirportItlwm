@@ -3607,6 +3607,15 @@ reportLLWLink(bool active)
     return reportLinkStatus(active ? 3 : 1, 0x80);
 }
 
+int AirportItlwmLLWInterface::
+setLLWLinkState(bool up)
+{
+    // Same call the station makes (WCL handleWCLLink). For a LowLatency-role interface
+    // setLinkStateInternal reports the link status, link speed and bandwidths, and skips the
+    // IPv6 enable and the peer manager.
+    return (int)setLinkState(up ? kIO80211NetworkLinkUp : kIO80211NetworkLinkDown, 0, false, 0, 0);
+}
+
 bool AirportItlwmAWDLInterface::
 createLLWInterface()
 {
@@ -3679,12 +3688,20 @@ createLLWInterface()
         IOSleep(20);
     if (!fLLWDying && llw->getBSDInterface())
         linkRet = llw->reportLLWLink(true);
+    // ifconfig's "status:" also needs the infra link state (see setLLWLinkState). Only once the ifnet exists.
+    bool stateSet = false;
+    int stateRet = 0;
+    if (linkRet == kIOReturnSuccess && !fLLWDying) {
+        stateRet = llw->setLLWLinkState(true);
+        stateSet = true;
+    }
     {
         OSString *role = OSDynamicCast(OSString, llw->getProperty("IO80211InterfaceRole"));
-        char m[128];
-        snprintf(m, sizeof(m), "created, service registered, role %s, link %s (0x%x)",
+        char m[160];
+        snprintf(m, sizeof(m), "created, service registered, role %s, link %s (0x%x), link state %s (0x%x)",
                  role ? role->getCStringNoCopy() : "(none)",
-                 linkRet == kIOReturnSuccess ? "active" : "not reported", linkRet);
+                 linkRet == kIOReturnSuccess ? "active" : "not reported", linkRet,
+                 stateSet ? "up requested" : "not set", (unsigned)stateRet);
         setProperty("LLWStatus", m);
     }
     LLW_LOG("llw created, bsd %s", bsd ?: "(null)");

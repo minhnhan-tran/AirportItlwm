@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.71] — 2026-11-20
+
+### Changed
+
+- `llw0` (`-itlllw`): after reporting the link status, also set the interface link state to up with `setLinkState(kIO80211NetworkLinkUp, ...)`, as the station does. `ifconfig` gets `status: active` from `IO80211InfraInterface::updateMediumStatus`, which only checks that link state, so `reportLinkStatus` alone (2.7.70) left `llw0` inactive. For a LowLatency-role interface, `setLinkStateInternal` reports the link status, link speed and bandwidths, and skips the IPv6 enable and the peer manager. `LLWStatus` now also shows the `setLinkState` result.
+
 ## [2.7.70] — 2026-11-20
 
 ### Added
