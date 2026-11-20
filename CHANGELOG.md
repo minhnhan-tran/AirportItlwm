@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.66] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`): `LLWStatus` on 2.7.65 reported `datapath failed: queue create failed`. The Skywalk queue `withPool` factories take `(pool, capacity, extra, owner, action, refcon, options)`; the queue id slot we assumed does not exist. `initWithPool` rejects a capacity below 8 (TX) / 2 (RX), and we passed `0` as the capacity. Now TX and RX queues are created with capacity 64.
+
 ## [2.7.65] — 2026-11-20
 
 ### Added

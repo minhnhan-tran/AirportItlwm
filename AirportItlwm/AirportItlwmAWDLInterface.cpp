@@ -3394,8 +3394,8 @@ setupDatapath()
         { fLastErr = "pool create failed"; IOLog("LLW %s: pool create failed\n", __FUNCTION__); }
         return false;
     }
-    fTxQ = IOSkywalkTxSubmissionQueue::withPool(fPool, 0, 64, this, txAction, this, 0);
-    fRxQ = IOSkywalkRxCompletionQueue::withPool(fPool, 1, 64, this, rxAction, this, 0);
+    fTxQ = IOSkywalkTxSubmissionQueue::withPool(fPool, 64, 0, this, txAction, this, 0);
+    fRxQ = IOSkywalkRxCompletionQueue::withPool(fPool, 64, 0, this, rxAction, this, 0);
     if (!fTxQ || !fRxQ) {
         { fLastErr = "queue create failed"; IOLog("LLW %s: queue create failed\n", __FUNCTION__); }
         freeDatapath();

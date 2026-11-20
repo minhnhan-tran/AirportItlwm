@@ -38,8 +38,9 @@ public:
     typedef uint32_t (*PacketAction)(OSObject *owner, IOSkywalkTxSubmissionQueue *queue,
                                      IOSkywalkPacket * const *packets, uint32_t count, void *refcon);
 
+    // capacity (1st uint) must be >= 8; extra (2nd uint) must be < 0x10000 (checked in initWithPool).
     static IOSkywalkTxSubmissionQueue *withPool(IOSkywalkPacketBufferPool *pool,
-                                                uint32_t queueId, uint32_t capacity,
+                                                uint32_t capacity, uint32_t extra,
                                                 OSObject *owner, PacketAction action,
                                                 void *refcon, uint32_t options);
 };
@@ -60,8 +61,9 @@ public:
     typedef uint32_t (*PacketAction)(OSObject *owner, IOSkywalkRxCompletionQueue *queue,
                                      IOSkywalkPacket **packets, uint32_t count, void *refcon);
 
+    // capacity (1st uint) must be >= 2; extra (2nd uint) must be < 0x10000.
     static IOSkywalkRxCompletionQueue *withPool(IOSkywalkPacketBufferPool *pool,
-                                                uint32_t queueId, uint32_t capacity,
+                                                uint32_t capacity, uint32_t extra,
                                                 OSObject *owner, PacketAction action,
                                                 void *refcon, uint32_t options);
 
@@ -75,7 +77,7 @@ public:
                                      IOSkywalkPacket **packets, uint32_t count, void *refcon);
 
     static IOSkywalkTxCompletionQueue *withPool(IOSkywalkPacketBufferPool *pool,
-                                                uint32_t queueId, uint32_t capacity,
+                                                uint32_t capacity, uint32_t extra,
                                                 OSObject *owner, PacketAction action,
                                                 void *refcon, uint32_t options);
 
