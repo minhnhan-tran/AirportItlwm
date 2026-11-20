@@ -3302,6 +3302,8 @@ AWDL_SET_STUB(AWDL_RTG_PEER_STATS_CONFIG, apple80211_rtg_peer_stats_cfg)
 // ---------------------------------------------------------------------------
 // llw0 (stage 2, experimental): see AirportItlwmLLWInterface in the header.
 // ---------------------------------------------------------------------------
+#define LLW_LOG(fmt, ...) IOLog("AirportItlwm: LLW %s: " fmt "\n", __FUNCTION__, ##__VA_ARGS__)
+
 OSDefineMetaClassAndStructors(AirportItlwmLLWInterface, IO80211InfraInterface);
 
 // Role 9 from AppleBCMWLANProximityInterface::setCOMPANION_SKYWALK_IF_CREATE (params +0x10 = 9, +0x18 = type 2).
@@ -3369,13 +3371,13 @@ setupDatapath()
     opts.poolFlags = 0;
     fPool = IOSkywalkPacketBufferPool::withName("AirportItlwmLLWPool", this, 0, &opts);
     if (!fPool) {
-        XYLog("LLW %s: pool create failed\n", __FUNCTION__);
+        IOLog("LLW %s: pool create failed\n", __FUNCTION__);
         return false;
     }
     fTxQ = IOSkywalkTxSubmissionQueue::withPool(fPool, 0, 64, this, txAction, this, 0);
     fRxQ = IOSkywalkRxCompletionQueue::withPool(fPool, 1, 64, this, rxAction, this, 0);
     if (!fTxQ || !fRxQ) {
-        XYLog("LLW %s: queue create failed\n", __FUNCTION__);
+        IOLog("LLW %s: queue create failed\n", __FUNCTION__);
         freeDatapath();
         return false;
     }
@@ -3421,16 +3423,16 @@ registerDatapath()
     if (!wl && fController)
         wl = fController->getWorkLoop();
     if (!wl) {
-        XYLog("LLW %s: no workloop\n", __FUNCTION__);
+        IOLog("LLW %s: no workloop\n", __FUNCTION__);
         return false;
     }
     if (wl->addEventSource(fTxQ) != kIOReturnSuccess) {
-        XYLog("LLW %s: addEventSource(txQ) failed\n", __FUNCTION__);
+        IOLog("LLW %s: addEventSource(txQ) failed\n", __FUNCTION__);
         return false;
     }
     if (wl->addEventSource(fRxQ) != kIOReturnSuccess) {
         wl->removeEventSource(fTxQ);
-        XYLog("LLW %s: addEventSource(rxQ) failed\n", __FUNCTION__);
+        IOLog("LLW %s: addEventSource(rxQ) failed\n", __FUNCTION__);
         return false;
     }
     fEventsAdded = true;
@@ -3439,7 +3441,7 @@ registerDatapath()
     static_assert(sizeof(info) >= 0x130, "RegistrationInfo ABI size");
     memset(&info, 0, sizeof(info));
     if (!initRegistrationInfo(&info, 1, sizeof(info))) {
-        XYLog("LLW %s: initRegistrationInfo failed\n", __FUNCTION__);
+        IOLog("LLW %s: initRegistrationInfo failed\n", __FUNCTION__);
         teardownDatapath();
         return false;
     }
@@ -3457,7 +3459,7 @@ registerDatapath()
 
     IOSkywalkPacketQueue *queues[2] = { (IOSkywalkPacketQueue *)fTxQ, (IOSkywalkPacketQueue *)fRxQ };
     bool ok = registerInfraEthernetInterface(&info, queues, 2, fPool, fPool);
-    XYLog("LLW %s: registerInfraEthernetInterface -> %d\n", __FUNCTION__, ok);
+    IOLog("LLW %s: registerInfraEthernetInterface -> %d\n", __FUNCTION__, ok);
     if (!ok) {
         teardownDatapath();
         return false;
@@ -3503,15 +3505,16 @@ IOReturn AirportItlwmAWDLInterface::
 setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
 {
     uint32_t en = 0;
+    LLW_LOG("ioctl received d=%p", d);
     if (!d || !PE_parse_boot_argn("-itlllw", &en, sizeof(en))) {
-        AWDL_LOG("COMPANION_SKYWALK_IF_CREATE ignored (no -itlllw)");
+        LLW_LOG("COMPANION_SKYWALK_IF_CREATE ignored (no -itlllw)");
         return kIOReturnSuccess;
     }
     AirportItlwmCompanionCreate *out = (AirportItlwmCompanionCreate *)d;
     if (out->enable == 0) {
         if (!fLLWIf)
             return kIOReturnNoDevice;
-        AWDL_LOG("destroying llw0");
+        LLW_LOG("destroying llw0");
         destroyLLWInterface();
         return kIOReturnSuccess;
     }
@@ -3536,14 +3539,14 @@ setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
         return kIOReturnError;
     }
     if (!llw->start(fController)) {
-        AWDL_LOG("llw0 start failed");
+        LLW_LOG("llw0 start failed");
         llw->detach(fController);
         llw->setParentInterface(nullptr);
         llw->release();
         return kIOReturnError;
     }
     if (!llw->setupDatapath() || !llw->registerDatapath()) {
-        AWDL_LOG("llw0 datapath setup failed");
+        LLW_LOG("llw0 datapath setup failed");
         llw->freeDatapath();
         llw->stop(fController);
         llw->detach(fController);
@@ -3554,7 +3557,7 @@ setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
     setCompanionLowLatencySkywalkInterface(llw);
     fLLWIf = llw;
     strlcpy(out->bsd_name, llw->getBSDName() ?: "llw0", sizeof(out->bsd_name));
-    AWDL_LOG("llw0 created, bsd %s", out->bsd_name);
+    LLW_LOG("llw0 created, bsd %s", out->bsd_name);
     return kIOReturnSuccess;
 }
 

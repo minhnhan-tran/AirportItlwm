@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.62] — 2026-11-20
+
+### Changed
+
+- `llw0` (`-itlllw`) diagnostics now use `IOLog` instead of `kprintf` (`XYLog`), so they appear in `dmesg`/the unified log; the `COMPANION_SKYWALK_IF_CREATE` handler logs on entry.
+
 ## [2.7.61] — 2026-11-20
 
 ### Fixed
