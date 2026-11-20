@@ -34,22 +34,22 @@ public:
     
 public:
     virtual void free() APPLE_KEXT_OVERRIDE;
-    virtual bool initWithName(char const*,void *,uint,IOSkywalkPacketBufferPool::PoolOptions const*);
-    virtual bool initWithName(char const*,OSObject *,uint,IOSkywalkPacketBufferPool::PoolOptions const*);
-    virtual bool allocatePacket(IOSkywalkPacket **,uint);
-    virtual bool allocatePacket(uint,IOSkywalkPacket **,uint);
-    virtual bool allocatePackets(uint,uint *,IOSkywalkPacket **,uint);
-    virtual void deallocatePacket(IOSkywalkPacket *);
-    virtual void deallocatePackets(IOSkywalkPacket **,uint);
-    virtual void deallocatePacketList(IOSkywalkPacket *);
-    virtual void deallocatePacketChain(unsigned long long);
-    virtual bool allocatePacketBuffer(IOSkywalkPacketBuffer **,uint);
-    virtual bool allocatePacketBuffers(uint *,IOSkywalkPacketBuffer **,uint);
-    virtual void deallocatePacketBuffer(IOSkywalkPacketBuffer *);
-    virtual void deallocatePacketBuffers(IOSkywalkPacketBuffer **,uint);
-    virtual bool newPacket(IOSkywalkPacketDescriptor *,IOSkywalkPacket **);
-    virtual bool newPacketBuffer(IOSkywalkPacketBufferDescriptor *,IOSkywalkPacketBuffer **);
-    virtual bool newMemorySegment(IOSkywalkMemorySegmentDescriptor *,IOSkywalkMemorySegment **);
+    bool initWithName(char const*,void *,uint,IOSkywalkPacketBufferPool::PoolOptions const*);
+    bool initWithName(char const*,OSObject *,uint,IOSkywalkPacketBufferPool::PoolOptions const*);
+    IOReturn allocatePacket(IOSkywalkPacket **,uint);
+    IOReturn allocatePacket(uint,IOSkywalkPacket **,uint);
+    IOReturn allocatePackets(uint,uint *,IOSkywalkPacket **,uint);
+    void deallocatePacket(IOSkywalkPacket *);
+    void deallocatePackets(IOSkywalkPacket **,uint);
+    void deallocatePacketList(IOSkywalkPacket *);
+    void deallocatePacketChain(unsigned long long);
+    IOReturn allocatePacketBuffer(IOSkywalkPacketBuffer **,uint);
+    IOReturn allocatePacketBuffers(uint *,IOSkywalkPacketBuffer **,uint);
+    void deallocatePacketBuffer(IOSkywalkPacketBuffer *);
+    void deallocatePacketBuffers(IOSkywalkPacketBuffer **,uint);
+    bool newPacket(IOSkywalkPacketDescriptor *,IOSkywalkPacket **);
+    bool newPacketBuffer(IOSkywalkPacketBufferDescriptor *,IOSkywalkPacketBuffer **);
+    bool newMemorySegment(IOSkywalkMemorySegmentDescriptor *,IOSkywalkMemorySegment **);
     
 public:
     static IOSkywalkPacketBufferPool *withName(char const*,OSObject *,uint,IOSkywalkPacketBufferPool::PoolOptions const*);

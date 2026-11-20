@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.60] — 2026-11-20
+
+### Added
+
+- **AWDL / Continuity Camera (experimental, off by default)**: stage-2 `llw0` low-latency Skywalk companion interface (`AirportItlwmLLWInterface`, an `IO80211InfraInterface`) created from `COMPANION_SKYWALK_IF_CREATE` only when the `-itlllw` boot-arg is set. It owns one `IOSkywalkPacketBufferPool`, one TX submission queue and one RX completion queue, registers them with `registerEthernetInterface`, then sets the companion interface id and low-latency mode. No AWDL data is routed through it yet (TX packets are returned to the pool, RX returns 0). Not yet tested on hardware. Adds `include/Airport/IOSkywalkPacketQueue.h`.
+
+### Fixed
+
+- `IOSkywalkEthernetInterface::registerEthernetInterface` is declared as returning `IOReturn` (it returned `bool`, which inverted success and failure); `IOSkywalkPacketBufferPool` methods are non-virtual exports, so calls no longer go through reserved vtable slots.
+
 ## [2.7.59] — 2026-11-19
 
 ### Fixed

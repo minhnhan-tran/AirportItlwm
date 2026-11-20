@@ -202,6 +202,10 @@ public:
     OSString *setInterfaceRole(unsigned int);
     void *setInterfaceId(unsigned int);
     int getInterfaceRole();
+    // Non-virtual, exported by IO80211Family (verified in the kernel collection symbols).
+    uint32_t getInterfaceId();
+    void setCompanionInterfaceId(unsigned int);
+    void setLowLatencyEnabled(bool);
 };
 static_assert(sizeof(IO80211SkywalkInterface) == 0x128, "WCL ABI size");
 #endif

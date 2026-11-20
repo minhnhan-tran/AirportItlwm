@@ -11,6 +11,9 @@
 
 #if defined(AIRPORT_WCL) && __IO80211_TARGET != __MAC_15_2
 
+#include <Airport/IOSkywalkPacketBufferPool.h>
+#include <Airport/IOSkywalkPacketQueue.h>
+
 extern IOCommandGate *_fCommandGate;
 
 OSDefineMetaClassAndStructors(AirportItlwmAWDLInterface, IO80211AWDLProtocol);
@@ -2349,6 +2352,7 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fSyncEnabled = false;
     fSyncState = 0;
     fCallCount = 0;
+    fLLWIf = nullptr;
     fRxAF = 0;
     fRxAFDropped = 0;
     fAWTimer = nullptr;
@@ -2495,6 +2499,12 @@ free()
 {
     AWDL_LOG("calls %llu", fCallCount);
     teardownAW();
+    if (fLLWIf) {
+        if (fController)
+            fLLWIf->detach(fController);
+        fLLWIf->release();
+        fLLWIf = nullptr;
+    }
     if (fPeerCacheLock) {
         IOSimpleLockFree(fPeerCacheLock);
         fPeerCacheLock = nullptr;
@@ -3284,7 +3294,7 @@ AWDL_SET_STUB(AWDL_TXCAL_PERIOD, apple80211_awdl_txcal_period)
 AWDL_SET_STUB(AWDL_AWDL_ADVERTISERS, awdl_peer_advert_add)
 AWDL_SET_STUB(AWDL_DFSP_CONFIG, apple80211_awdl_dfsp_config)
 AWDL_SET_STUB(AWDL_DFSP_UCSA_CONFIG, apple80211_awdl_dfsp_ucsa_config)
-AWDL_SET_STUB(COMPANION_SKYWALK_IF_CREATE, apple80211_companion_skywalk_if_create)
+// Placeholder; real implementation below (needs the LLW class definition).
 AWDL_SET_STUB(AWDL_OOB_SEC_PAYLOAD_REQUEST, apple80211_awdl_af_sec_payload_request)
 AWDL_SET_STUB(LLW_PARAMS, apple80211_llw_params)
 AWDL_SET_STUB(TX_RATE, apple80211_tx_rate)
@@ -3292,5 +3302,156 @@ AWDL_SET_STUB(P2P_COEX_PROTECTION, apple80211_p2p_coex_protection)
 AWDL_SET_STUB(PSF_DWELL, apple80211_awdl_psf_dwell_params)
 AWDL_SET_STUB(AWDL_CONFIG, apple80211_awdl_config_request)
 AWDL_SET_STUB(AWDL_RTG_PEER_STATS_CONFIG, apple80211_rtg_peer_stats_cfg)
+
+// ---------------------------------------------------------------------------
+// llw0 (stage 2, experimental): see AirportItlwmLLWInterface in the header.
+// ---------------------------------------------------------------------------
+OSDefineMetaClassAndStructors(AirportItlwmLLWInterface, IO80211InfraInterface);
+
+// Role the vendor's AppleBCMWLANLowLatencyInterface passes (init type 2); id comes from the awdl interface.
+#define kAirportItlwmLLWType 2
+
+AirportItlwmLLWInterface *AirportItlwmLLWInterface::
+withController(AirportItlwm *controller, const ether_addr *mac)
+{
+    if (!controller || !mac)
+        return nullptr;
+    AirportItlwmLLWInterface *llw = OSTypeAlloc(AirportItlwmLLWInterface);
+    if (!llw)
+        return nullptr;
+    if (!llw->init()) {
+        llw->release();
+        return nullptr;
+    }
+    llw->fController = controller;
+    memcpy(&llw->fMac, mac, sizeof(ether_addr));
+    llw->fPool = nullptr;
+    llw->fTxQ = nullptr;
+    llw->fRxQ = nullptr;
+    llw->setInterfaceRole(kAirportItlwmLLWType);
+    return llw;
+}
+
+uint32_t AirportItlwmLLWInterface::
+txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *, IOSkywalkPacket *const *pkts, uint32_t n, void *)
+{
+    AirportItlwmLLWInterface *self = OSDynamicCast(AirportItlwmLLWInterface, owner);
+    if (self && self->fPool && pkts) {
+        for (uint32_t i = 0; i < n; i++) {
+            if (pkts[i])
+                self->fPool->deallocatePacket(pkts[i]);
+        }
+    }
+    return n;
+}
+
+uint32_t AirportItlwmLLWInterface::
+rxAction(OSObject *, IOSkywalkRxCompletionQueue *, IOSkywalkPacket **, uint32_t, void *)
+{
+    // gatedEnqueue treats packets[] as an output array populated by rxAction; return 0 until RX is wired.
+    return 0;
+}
+
+bool AirportItlwmLLWInterface::
+setupDatapath()
+{
+    IOSkywalkPacketBufferPool::PoolOptions opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.packetCount = 128;
+    opts.bufferCount = 128;
+    opts.bufferSize = 2048;
+    opts.maxBuffersPerPacket = 1;
+    opts.memorySegmentSize = 0;
+    opts.poolFlags = 0;
+    fPool = IOSkywalkPacketBufferPool::withName("AirportItlwmLLWPool", this, 0, &opts);
+    if (!fPool) {
+        XYLog("LLW %s: pool create failed\n", __FUNCTION__);
+        return false;
+    }
+    fTxQ = IOSkywalkTxSubmissionQueue::withPool(fPool, 0, 64, this, txAction, this, 0);
+    fRxQ = IOSkywalkRxCompletionQueue::withPool(fPool, 1, 64, this, rxAction, this, 0);
+    if (!fTxQ || !fRxQ) {
+        XYLog("LLW %s: queue create failed\n", __FUNCTION__);
+        freeDatapath();
+        return false;
+    }
+    return true;
+}
+
+void AirportItlwmLLWInterface::
+freeDatapath()
+{
+    OSSafeReleaseNULL(fTxQ);
+    OSSafeReleaseNULL(fRxQ);
+    OSSafeReleaseNULL(fPool);
+}
+
+bool AirportItlwmLLWInterface::
+registerDatapath()
+{
+    if (!fPool || !fTxQ || !fRxQ)
+        return false;
+    IOSkywalkEthernetInterface::RegistrationInfo info;
+    memset(&info, 0, sizeof(info));
+    if (!initRegistrationInfo(&info, 1, sizeof(info))) {
+        XYLog("LLW %s: initRegistrationInfo failed\n", __FUNCTION__);
+        return false;
+    }
+    IOSkywalkPacketQueue *queues[2] = { (IOSkywalkPacketQueue *)fTxQ, (IOSkywalkPacketQueue *)fRxQ };
+    IOReturn kr = registerEthernetInterface(&info, queues, 2, fPool, fPool, 0);
+    XYLog("LLW %s: registerEthernetInterface -> 0x%x\n", __FUNCTION__, kr);
+    return kr == kIOReturnSuccess;
+}
+
+void AirportItlwmLLWInterface::
+free()
+{
+    freeDatapath();
+    IO80211InfraInterface::free();
+}
+
+
+// Experimental llw0 creation, enabled only with boot-arg -itlllw. Layout used by the vendor
+// handler: the BSD name of the new interface is written at data+8 (16 bytes).
+struct AirportItlwmCompanionCreate {
+    uint8_t  hdr[8];
+    char     bsd_name[16];
+};
+
+IOReturn AirportItlwmAWDLInterface::
+setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
+{
+    uint32_t en = 0;
+    if (!d || !PE_parse_boot_argn("-itlllw", &en, sizeof(en))) {
+        AWDL_LOG("COMPANION_SKYWALK_IF_CREATE ignored (no -itlllw)");
+        return kIOReturnSuccess;
+    }
+    AirportItlwmCompanionCreate *out = (AirportItlwmCompanionCreate *)d;
+    if (fLLWIf) {
+        strlcpy(out->bsd_name, fLLWIf->getBSDName() ?: "llw0", sizeof(out->bsd_name));
+        return kIOReturnSuccess;
+    }
+    if (!fController)
+        return kIOReturnNotReady;
+    AirportItlwmLLWInterface *llw = AirportItlwmLLWInterface::withController(fController, &fMac);
+    if (!llw)
+        return kIOReturnNoMemory;
+    if (!llw->attach(fController)) {
+        llw->release();
+        return kIOReturnError;
+    }
+    if (!llw->setupDatapath() || !llw->registerDatapath()) {
+        AWDL_LOG("llw0 datapath setup failed");
+        llw->detach(fController);
+        llw->release();
+        return kIOReturnError;
+    }
+    llw->setCompanionInterfaceId(getInterfaceId());
+    llw->setLowLatencyEnabled(true);
+    fLLWIf = llw;
+    strlcpy(out->bsd_name, llw->getBSDName() ?: "llw0", sizeof(out->bsd_name));
+    AWDL_LOG("llw0 created, bsd %s", out->bsd_name);
+    return kIOReturnSuccess;
+}
 
 #endif /* AIRPORT_WCL && Tahoe */

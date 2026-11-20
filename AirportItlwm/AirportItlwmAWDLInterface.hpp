@@ -15,6 +15,8 @@
 #include <Airport/Apple80211.h>
 #include <Airport/macOS26/IO80211VirtualInterface.h>
 #include <Airport/macOS26/IO80211AWDLProtocol.h>
+#include <Airport/macOS26/IO80211InfraInterface.h>
+#include <Airport/IOSkywalkPacketQueue.h>
 #include "AirportItlwmEthernetInterface.hpp"
 #include <IOKit/IOTimerEventSource.h>
 
@@ -431,6 +433,37 @@ private:
     bool fSyncEnabled;
     uint32_t fSyncState;
     uint64_t fCallCount;
+    class AirportItlwmLLWInterface *fLLWIf;
+};
+
+
+// llw0 (stage 2, EXPERIMENTAL, off unless boot-arg -itlllw): the low-latency Skywalk
+// interface AppleBCMWLANLowLatencyInterface provides on a real Mac. Created from
+// COMPANION_SKYWALK_IF_CREATE on awdl0. It owns a packet pool plus one TX submission and
+// one RX completion queue so the family can build the logical link / nexus. No AWDL data is
+// routed through it yet: TX packets are dropped back to the pool.
+class IOSkywalkPacketBufferPool;
+class IOSkywalkTxSubmissionQueue;
+class IOSkywalkRxCompletionQueue;
+class AirportItlwmLLWInterface : public IO80211InfraInterface {
+    OSDeclareDefaultStructors(AirportItlwmLLWInterface)
+public:
+    static AirportItlwmLLWInterface *withController(AirportItlwm *controller, const ether_addr *mac);
+    bool setupDatapath();
+    void freeDatapath();
+    void free() override;
+    IOReturn setMacAddress(mloAddrArray &) override { return kIOReturnSuccess; }
+    // Registers the pool + queues with the family (builds logical link / nexus).
+    bool registerDatapath();
+    IOSkywalkPacketBufferPool *pool() const { return fPool; }
+private:
+    static uint32_t txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *q, IOSkywalkPacket *const *pkts, uint32_t n, void *ref);
+    static uint32_t rxAction(OSObject *owner, IOSkywalkRxCompletionQueue *q, IOSkywalkPacket **pkts, uint32_t n, void *ref);
+    AirportItlwm *fController;
+    ether_addr fMac;
+    IOSkywalkPacketBufferPool *fPool;
+    IOSkywalkTxSubmissionQueue *fTxQ;
+    IOSkywalkRxCompletionQueue *fRxQ;
 };
 
 #endif /* AIRPORT_WCL && Tahoe */
