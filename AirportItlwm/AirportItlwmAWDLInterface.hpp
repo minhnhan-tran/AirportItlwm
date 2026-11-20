@@ -466,6 +466,8 @@ class AirportItlwmLLWInterface : public IO80211InfraInterface {
 public:
     static AirportItlwmLLWInterface *withController(AirportItlwm *controller, const ether_addr *mac);
     const char *getBSDNamePrefix() override;
+    SInt32 initBSDInterfaceParameters(ifnet_init_eparams *params, sockaddr_dl **ll) override;
+    void stop(IOService *provider) override;
     bool setupDatapath();
     void teardownDatapath();
     void freeDatapath();
@@ -486,6 +488,8 @@ private:
     bool fRegistered;
 public:
     const char *fLastErr; // last failing setup step, surfaced via the AWDL interface's LLWStatus property
+    bool fServiceRegistered; // registerService() done, so IOSkywalkNetworkBSDClient can attach and create llw0
+    uint64_t fUniqueId;      // ifnet uniqueid, see initBSDInterfaceParameters
 };
 
 #endif /* AIRPORT_WCL && Tahoe */

@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.68] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`): 2.7.67 registered the datapath (`LLWStatus = created`, no panic) but `llw0` never appeared, because the interface was never published with `registerService()`, so `IOSkywalkNetworkBSDClient` (which creates the ifnet and nexus) never matched it. It now calls `registerService(kIOServiceAsynchronous)` after registration, as `AppleBCMWLANSkywalkInterface::start` does, and teardown uses `terminate()` like `AppleBCMWLANCore::destroySkywalkInterface`.
+- `llw0` uses `awdl0`'s MAC address, so `initBSDInterfaceParameters` now gives the ifnet its own 8-byte unique id (the object address), as `AppleBCMWLANLowLatencyInterface` does.
+- `stop()` removes the queue event sources and lets the family's stop deregister the interface, instead of calling `deregisterEthernetInterface` separately.
+
 ## [2.7.67] — 2026-11-20
 
 ### Fixed

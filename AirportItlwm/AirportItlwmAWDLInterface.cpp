@@ -5,6 +5,7 @@
 //  awdl0 for macOS 26 (Tahoe), stage 1: accept and log the AWDL control plane.
 //
 
+#include <net/kpi_interface.h>
 #include <kern/thread_call.h>
 #include "AirportItlwmV2.hpp"
 #include "AirportItlwmAWDLInterface.hpp"
@@ -3346,6 +3347,8 @@ withController(AirportItlwm *controller, const ether_addr *mac)
     llw->fTxQ = nullptr;
     llw->fRxQ = nullptr;
     llw->fLastErr = nullptr;
+    llw->fServiceRegistered = false;
+    llw->fUniqueId = 0;
     llw->fEventsAdded = false;
     llw->fRegistered = false;
     llw->setInterfaceRole(kAirportItlwmLLWRole);
@@ -3356,6 +3359,34 @@ const char *AirportItlwmLLWInterface::
 getBSDNamePrefix()
 {
     return "llw";
+}
+
+// As AppleBCMWLANLowLatencyInterface::initBSDInterfaceParameters: llw0 carries awdl0's MAC, so give the
+// ifnet its own 8-byte uniqueid (the object address) instead of a MAC-derived one.
+SInt32 AirportItlwmLLWInterface::
+initBSDInterfaceParameters(ifnet_init_eparams *params, sockaddr_dl **ll)
+{
+    SInt32 ret = IO80211InfraInterface::initBSDInterfaceParameters(params, ll);
+    if (ret == 0 && params) {
+        fUniqueId = (uint64_t)(uintptr_t)this;
+        // ifnet_init_eparams is opaque in apple_private_spi.h. XNU layout: uniqueid at +0x10, uniqueid_len
+        // at +0x18, the same offsets AppleBCMWLANLowLatencyInterface writes. XNU copies the id during
+        // ifnet allocation, so a member is enough.
+        uint8_t *p = reinterpret_cast<uint8_t *>(params);
+        *reinterpret_cast<const void **>(p + 0x10) = &fUniqueId;
+        *reinterpret_cast<uint32_t *>(p + 0x18) = sizeof(fUniqueId);
+    }
+    return ret;
+}
+
+void AirportItlwmLLWInterface::
+stop(IOService *provider)
+{
+    // Same order as the 2.7.66 failure path, which ran without trouble: drop the queue event sources,
+    // then let the family's stop deregister the interface (no separate deregisterEthernetInterface).
+    fRegistered = false;
+    teardownDatapath();
+    IO80211InfraInterface::stop(provider);
 }
 
 uint32_t AirportItlwmLLWInterface::
@@ -3525,8 +3556,11 @@ teardownLLWInterface()
         return;
     setCompanionLowLatencySkywalkInterface(nullptr);
     llw->setParentInterface(nullptr);
-    llw->teardownDatapath();
-    if (fController) {
+    if (llw->fServiceRegistered) {
+        // As AppleBCMWLANCore::destroySkywalkInterface: terminate() stops the BSD client first, then
+        // IOKit calls stop()/detach() on the interface.
+        llw->terminate();
+    } else if (fController) {
         llw->stop(fController);
         llw->detach(fController);
     }
@@ -3612,6 +3646,10 @@ createLLWInterface()
         return false;
     }
     setCompanionLowLatencySkywalkInterface(llw);
+    // As AppleBCMWLANSkywalkInterface::start: publish the interface so IOSkywalkNetworkBSDClient matches
+    // it and creates the llw0 ifnet and nexus.
+    llw->fServiceRegistered = true;
+    llw->registerService(kIOServiceAsynchronous);
     const char *bsd = llw->getBSDName();
     if (fLLWLock)
         IOLockLock(fLLWLock);
@@ -3619,7 +3657,7 @@ createLLWInterface()
     strlcpy(fLLWBsdName, bsd ?: "llw0", sizeof(fLLWBsdName));
     if (fLLWLock)
         IOLockUnlock(fLLWLock);
-    setProperty("LLWStatus", "created");
+    setProperty("LLWStatus", "created, service registered");
     LLW_LOG("llw created, bsd %s", bsd ?: "(null)");
     return true;
 }
