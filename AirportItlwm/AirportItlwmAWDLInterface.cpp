@@ -2356,12 +2356,15 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fCallCount = 0;
     fLLWIf = nullptr;
     fLLWWant = false;
-    fLLWScheduled = false;
+    fLLWDirty = false;
+    fLLWPending = false;
+    fLLWRunning = false;
     fLLWDying = false;
+    memset(fLLWBsdName, 0, sizeof(fLLWBsdName));
     fLLWLock = IOLockAlloc();
-    fLLWCall = thread_call_allocate([](thread_call_param_t p0, thread_call_param_t) {
+    fLLWCall = thread_call_allocate_with_priority([](thread_call_param_t p0, thread_call_param_t) {
         static_cast<AirportItlwmAWDLInterface *>(p0)->llwWork();
-    }, this);
+    }, this, THREAD_CALL_PRIORITY_KERNEL);
     fRxAF = 0;
     fRxAFDropped = 0;
     fAWTimer = nullptr;
@@ -3504,9 +3507,20 @@ struct AirportItlwmCompanionCreate {
 void AirportItlwmAWDLInterface::
 teardownLLWInterface()
 {
-    if (!fLLWIf)
+    AirportItlwmLLWInterface *llw = nullptr;
+    if (fLLWLock) {
+        IOLockLock(fLLWLock);
+        llw = fLLWIf;
+        fLLWIf = nullptr;
+        fLLWBsdName[0] = '\0';
+        IOLockUnlock(fLLWLock);
+    } else {
+        llw = fLLWIf;
+        fLLWIf = nullptr;
+        fLLWBsdName[0] = '\0';
+    }
+    if (!llw)
         return;
-    AirportItlwmLLWInterface *llw = fLLWIf;
     setCompanionLowLatencySkywalkInterface(nullptr);
     llw->setParentInterface(nullptr);
     llw->teardownDatapath();
@@ -3515,35 +3529,48 @@ teardownLLWInterface()
         llw->detach(fController);
     }
     llw->release();
-    fLLWIf = nullptr;
 }
 
 // Final teardown (from stop/free): refuse new requests and wait for the worker to finish.
 void AirportItlwmAWDLInterface::
 destroyLLWInterface()
 {
+    bool canceledPending = false;
     if (fLLWLock) {
         IOLockLock(fLLWLock);
         fLLWDying = true;
         fLLWWant = false;
-        IOLockUnlock(fLLWLock);
-        for (int i = 0; i < 3000; i++) { // up to 30 s
-            IOLockLock(fLLWLock);
-            bool busy = fLLWScheduled;
-            IOLockUnlock(fLLWLock);
-            if (!busy)
-                break;
-            IOSleep(10);
+        fLLWDirty = false;
+        if (fLLWPending && fLLWCall) {
+            if (thread_call_cancel(fLLWCall)) {
+                fLLWPending = false;
+                canceledPending = true;
+            }
         }
+        while (fLLWPending || fLLWRunning) {
+            IOLockSleep(fLLWLock, &fLLWRunning, THREAD_UNINT);
+        }
+        IOLockUnlock(fLLWLock);
     }
+    if (fLLWCall)
+        thread_call_cancel_wait(fLLWCall);
     teardownLLWInterface();
+    if (canceledPending)
+        release();
 }
 
 bool AirportItlwmAWDLInterface::
 createLLWInterface()
 {
-    if (fLLWIf)
+    if (fLLWLock) {
+        IOLockLock(fLLWLock);
+        bool exists = (fLLWIf != nullptr);
+        IOLockUnlock(fLLWLock);
+        if (exists)
+            return true;
+    } else if (fLLWIf) {
         return true;
+    }
     if (!fController)
         return false;
     AirportItlwmLLWInterface *llw = AirportItlwmLLWInterface::withController(fController, &fMac);
@@ -3576,8 +3603,14 @@ createLLWInterface()
         return false;
     }
     setCompanionLowLatencySkywalkInterface(llw);
+    const char *bsd = llw->getBSDName();
+    if (fLLWLock)
+        IOLockLock(fLLWLock);
     fLLWIf = llw;
-    LLW_LOG("llw created, bsd %s", llw->getBSDName() ?: "(null)");
+    strlcpy(fLLWBsdName, bsd ?: "llw0", sizeof(fLLWBsdName));
+    if (fLLWLock)
+        IOLockUnlock(fLLWLock);
+    LLW_LOG("llw created, bsd %s", bsd ?: "(null)");
     return true;
 }
 
@@ -3585,22 +3618,36 @@ createLLWInterface()
 void AirportItlwmAWDLInterface::
 llwWork()
 {
+    IOLockLock(fLLWLock);
+    fLLWPending = false;
+    fLLWRunning = true;
     for (;;) {
-        IOLockLock(fLLWLock);
+        if (fLLWDying) {
+            fLLWDirty = false;
+            if (fLLWIf) {
+                IOLockUnlock(fLLWLock);
+                teardownLLWInterface();
+                IOLockLock(fLLWLock);
+            }
+            break;
+        }
+        if (!fLLWDirty)
+            break;
         bool want = fLLWWant;
+        fLLWDirty = false;
+        bool have = (fLLWIf != nullptr);
+        if (want == have)
+            continue;
         IOLockUnlock(fLLWLock);
         if (want)
             createLLWInterface();
         else
             teardownLLWInterface();
         IOLockLock(fLLWLock);
-        if (fLLWWant == want) {
-            fLLWScheduled = false;
-            IOLockUnlock(fLLWLock);
-            break;
-        }
-        IOLockUnlock(fLLWLock);
     }
+    fLLWRunning = false;
+    IOLockWakeup(fLLWLock, &fLLWRunning, false);
+    IOLockUnlock(fLLWLock);
     release(); // balances the retain in requestLLW()
 }
 
@@ -3615,13 +3662,14 @@ requestLLW(bool create)
         return;
     }
     fLLWWant = create;
-    bool schedule = !fLLWScheduled;
-    fLLWScheduled = true;
-    IOLockUnlock(fLLWLock);
-    if (schedule) {
+    fLLWDirty = true;
+    if (!fLLWRunning && !fLLWPending) {
+        fLLWPending = true;
         retain();
-        thread_call_enter(fLLWCall);
+        if (thread_call_enter(fLLWCall))
+            release();
     }
+    IOLockUnlock(fLLWLock);
 }
 
 IOReturn AirportItlwmAWDLInterface::
@@ -3645,7 +3693,13 @@ setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
         return kIOReturnSuccess;
     // start() can't complete on this (gated) thread, so create asynchronously and report the expected name.
     requestLLW(true);
-    strlcpy(out->bsd_name, fLLWIf ? (fLLWIf->getBSDName() ?: "llw0") : "llw0", sizeof(out->bsd_name));
+    if (fLLWLock) {
+        IOLockLock(fLLWLock);
+        strlcpy(out->bsd_name, fLLWBsdName[0] ? fLLWBsdName : "llw0", sizeof(out->bsd_name));
+        IOLockUnlock(fLLWLock);
+    } else {
+        strlcpy(out->bsd_name, "llw0", sizeof(out->bsd_name));
+    }
     return kIOReturnSuccess;
 }
 

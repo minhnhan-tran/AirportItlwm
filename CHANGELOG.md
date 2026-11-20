@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.64] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`) async worker races: synchronize `fLLWIf` / `fLLWBsdName` under `fLLWLock` to fix a use-after-free in `setCOMPANION_SKYWALK_IF_CREATE`; call `retain()` + `thread_call_enter` inside `fLLWLock` and synchronize teardown with `thread_call_cancel` / `IOLockSleep` / `thread_call_cancel_wait` instead of a 30 s polling timeout that could race `free()`; run `fLLWCall` at `THREAD_CALL_PRIORITY_KERNEL` instead of `HIGH`.
+
 ## [2.7.63] — 2026-11-20
 
 ### Fixed

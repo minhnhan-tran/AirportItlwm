@@ -19,6 +19,8 @@
 #include <Airport/IOSkywalkPacketQueue.h>
 #include "AirportItlwmEthernetInterface.hpp"
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOLocks.h>
+#include <kern/thread_call.h>
 
 class AirportItlwm;
 struct ieee80211_rxinfo;
@@ -443,8 +445,11 @@ private:
     thread_call_t fLLWCall;
     IOLock *fLLWLock;
     bool fLLWWant;
-    bool fLLWScheduled;
+    bool fLLWDirty;
+    bool fLLWPending;
+    bool fLLWRunning;
     bool fLLWDying;
+    char fLLWBsdName[16];
 };
 
 
