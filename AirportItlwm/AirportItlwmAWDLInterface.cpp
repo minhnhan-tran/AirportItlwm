@@ -3326,8 +3326,12 @@ AWDL_SET_STUB(AWDL_RTG_PEER_STATS_CONFIG, apple80211_rtg_peer_stats_cfg)
 
 OSDefineMetaClassAndStructors(AirportItlwmLLWInterface, IO80211InfraInterface);
 
-// Role 9 from AppleBCMWLANProximityInterface::setCOMPANION_SKYWALK_IF_CREATE (params +0x10 = 9, +0x18 = type 2).
-#define kAirportItlwmLLWRole 9
+// IO80211SkywalkInterface::setInterfaceRole(2) publishes IO80211InterfaceRole = "LowLatency" (1 = "Infrastructure",
+// 6-10 = IO80211VirtualInterfaceRole AirLink/SoftAP/WiFi-Aware...). IO80211.framework Apple80211GetIfListCopy lists
+// only interfaces whose IO80211InterfaceRole is "Infrastructure" (_isInfraInterface), which is what keeps a real
+// Mac's llw0 out of airportd/CoreWLAN. Role 9 (WiFi-Aware Discovery+Data) left the role at Infrastructure, so
+// 2.7.68's llw0 became the default Wi-Fi interface.
+#define kAirportItlwmLLWRole 2
 
 AirportItlwmLLWInterface *AirportItlwmLLWInterface::
 withController(AirportItlwm *controller, const ether_addr *mac)
@@ -3648,6 +3652,8 @@ createLLWInterface()
     setCompanionLowLatencySkywalkInterface(llw);
     // As AppleBCMWLANSkywalkInterface::start: publish the interface so IOSkywalkNetworkBSDClient matches
     // it and creates the llw0 ifnet and nexus.
+    // Set again right before publishing in case attach/start changed it: airportd must see "LowLatency".
+    llw->setInterfaceRole(kAirportItlwmLLWRole);
     llw->fServiceRegistered = true;
     llw->registerService(kIOServiceAsynchronous);
     const char *bsd = llw->getBSDName();
@@ -3657,7 +3663,12 @@ createLLWInterface()
     strlcpy(fLLWBsdName, bsd ?: "llw0", sizeof(fLLWBsdName));
     if (fLLWLock)
         IOLockUnlock(fLLWLock);
-    setProperty("LLWStatus", "created, service registered");
+    {
+        OSString *role = OSDynamicCast(OSString, llw->getProperty("IO80211InterfaceRole"));
+        char m[96];
+        snprintf(m, sizeof(m), "created, service registered, role %s", role ? role->getCStringNoCopy() : "(none)");
+        setProperty("LLWStatus", m);
+    }
     LLW_LOG("llw created, bsd %s", bsd ?: "(null)");
     return true;
 }

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.69] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`): 2.7.68 created `llw0`, but `airportd`/CoreWLAN made it the default Wi-Fi interface and Wi-Fi was lost (every Apple80211 ioctl on `llw0` failed). IO80211.framework's `Apple80211GetIfListCopy` only lists interfaces whose `IO80211InterfaceRole` registry property is `"Infrastructure"`, which is how a real Mac keeps `llw0` hidden. `IO80211SkywalkInterface::setInterfaceRole` maps role 1 to `Infrastructure` and role 2 to `LowLatency`; role 9, which we used, is the NAN role `WiFi-Aware Discovery+Data` under `IO80211VirtualInterfaceRole` and left `IO80211InterfaceRole` at `Infrastructure`. `llw0` now uses role 2, and the role is set again just before `registerService()`. `LLWStatus` reports the published role.
+
 ## [2.7.68] — 2026-11-20
 
 ### Fixed
