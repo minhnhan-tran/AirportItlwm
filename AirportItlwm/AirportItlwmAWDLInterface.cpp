@@ -3478,11 +3478,10 @@ registerDatapath()
     memcpy(raw + 0x108, &fMac, sizeof(ether_addr));
 
     IOSkywalkPacketQueue *queues[2] = { (IOSkywalkPacketQueue *)fTxQ, (IOSkywalkPacketQueue *)fRxQ };
-    bool ok = registerInfraEthernetInterface(&info, queues, 2, fPool, fPool);
-    IOLog("LLW %s: registerInfraEthernetInterface -> %d\n", __FUNCTION__, ok);
-    if (!ok)
-        fLastErr = "registerInfraEthernetInterface returned false";
-    if (!ok) {
+    IOReturn kr = registerInfraEthernetInterface(&info, queues, 2, fPool, fPool);
+    IOLog("LLW %s: registerInfraEthernetInterface -> 0x%x\n", __FUNCTION__, kr);
+    if (kr != kIOReturnSuccess) {
+        fLastErr = "registerInfraEthernetInterface failed";
         teardownDatapath();
         return false;
     }

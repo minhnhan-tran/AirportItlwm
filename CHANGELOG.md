@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.67] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`): `IO80211InfraInterface::registerInfraEthernetInterface` returns the `IOReturn` of `registerEthernetInterface` (`mov eax, r14d`), not a `bool`. It was declared `bool`, so success (`0`) was read as failure and 2.7.66 reported `LLWStatus = "datapath failed: registerInfraEthernetInterface returned false"` and tore down a registration that had worked. The result is now compared with `kIOReturnSuccess`.
+
 ## [2.7.66] — 2026-11-20
 
 ### Fixed

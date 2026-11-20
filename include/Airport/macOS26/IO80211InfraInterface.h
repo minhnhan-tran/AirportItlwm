@@ -81,7 +81,8 @@ private: virtual void _abi_0c30() __asm__("__ZN21IO80211InfraInterface19setRxDat
     virtual IOReturn setWCL_LINK_STATE_UPDATE(apple80211_wcl_update_link_state*);
 private: virtual void _abi_0e98() __asm__("__ZN21IO80211InfraInterface13createLQMDataEv"); public:
     virtual IOReturn setMacAddress(mloAddrArray&) = 0;
-    bool registerInfraEthernetInterface(IOSkywalkEthernetInterface::RegistrationInfo *, IOSkywalkPacketQueue **, unsigned int, IOSkywalkPacketBufferPool *, IOSkywalkPacketBufferPool *);
+    // Returns the IOReturn from IOSkywalkEthernetInterface::registerEthernetInterface (0 = success), not a bool.
+    IOReturn registerInfraEthernetInterface(IOSkywalkEthernetInterface::RegistrationInfo *, IOSkywalkPacketQueue **, unsigned int, IOSkywalkPacketBufferPool *, IOSkywalkPacketBufferPool *);
 private: uint8_t _layout[0x130 - sizeof(IO80211SkywalkInterface)];
 };
 static_assert(sizeof(IO80211InfraInterface) == 0x130, "WCL ABI size");
