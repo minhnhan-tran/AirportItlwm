@@ -5,6 +5,7 @@
 //  awdl0 for macOS 26 (Tahoe), stage 1: accept and log the AWDL control plane.
 //
 
+#include <kern/thread_call.h>
 #include "AirportItlwmV2.hpp"
 #include "AirportItlwmAWDLInterface.hpp"
 #include "AirportItlwmSkywalkInterface.hpp"
@@ -2354,6 +2355,13 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fSyncState = 0;
     fCallCount = 0;
     fLLWIf = nullptr;
+    fLLWWant = false;
+    fLLWScheduled = false;
+    fLLWDying = false;
+    fLLWLock = IOLockAlloc();
+    fLLWCall = thread_call_allocate([](thread_call_param_t p0, thread_call_param_t) {
+        static_cast<AirportItlwmAWDLInterface *>(p0)->llwWork();
+    }, this);
     fRxAF = 0;
     fRxAFDropped = 0;
     fAWTimer = nullptr;
@@ -2501,6 +2509,14 @@ free()
     AWDL_LOG("calls %llu", fCallCount);
     teardownAW();
     destroyLLWInterface();
+    if (fLLWCall) {
+        thread_call_free(fLLWCall); // may report busy if the worker is still unwinding; harmless
+        fLLWCall = nullptr;
+    }
+    if (fLLWLock) {
+        IOLockFree(fLLWLock);
+        fLLWLock = nullptr;
+    }
     if (fPeerCacheLock) {
         IOSimpleLockFree(fPeerCacheLock);
         fPeerCacheLock = nullptr;
@@ -3486,19 +3502,126 @@ struct AirportItlwmCompanionCreate {
 };
 
 void AirportItlwmAWDLInterface::
-destroyLLWInterface()
+teardownLLWInterface()
 {
     if (!fLLWIf)
         return;
+    AirportItlwmLLWInterface *llw = fLLWIf;
     setCompanionLowLatencySkywalkInterface(nullptr);
-    fLLWIf->setParentInterface(nullptr);
-    fLLWIf->teardownDatapath();
+    llw->setParentInterface(nullptr);
+    llw->teardownDatapath();
     if (fController) {
-        fLLWIf->stop(fController);
-        fLLWIf->detach(fController);
+        llw->stop(fController);
+        llw->detach(fController);
     }
-    fLLWIf->release();
+    llw->release();
     fLLWIf = nullptr;
+}
+
+// Final teardown (from stop/free): refuse new requests and wait for the worker to finish.
+void AirportItlwmAWDLInterface::
+destroyLLWInterface()
+{
+    if (fLLWLock) {
+        IOLockLock(fLLWLock);
+        fLLWDying = true;
+        fLLWWant = false;
+        IOLockUnlock(fLLWLock);
+        for (int i = 0; i < 3000; i++) { // up to 30 s
+            IOLockLock(fLLWLock);
+            bool busy = fLLWScheduled;
+            IOLockUnlock(fLLWLock);
+            if (!busy)
+                break;
+            IOSleep(10);
+        }
+    }
+    teardownLLWInterface();
+}
+
+bool AirportItlwmAWDLInterface::
+createLLWInterface()
+{
+    if (fLLWIf)
+        return true;
+    if (!fController)
+        return false;
+    AirportItlwmLLWInterface *llw = AirportItlwmLLWInterface::withController(fController, &fMac);
+    if (!llw)
+        return false;
+    llw->setLowLatencyEnabled(true);
+    llw->setParentInterface(this);
+    llw->setCompanionInterfaceId(getInterfaceId());
+    llw->setInitMacAddress(fMac);
+    if (!llw->attach(fController)) {
+        LLW_LOG("llw attach failed");
+        llw->setParentInterface(nullptr);
+        llw->release();
+        return false;
+    }
+    if (!llw->start(fController)) {
+        LLW_LOG("llw start failed");
+        llw->detach(fController);
+        llw->setParentInterface(nullptr);
+        llw->release();
+        return false;
+    }
+    if (!llw->setupDatapath() || !llw->registerDatapath()) {
+        LLW_LOG("llw datapath setup failed");
+        llw->freeDatapath();
+        llw->stop(fController);
+        llw->detach(fController);
+        llw->setParentInterface(nullptr);
+        llw->release();
+        return false;
+    }
+    setCompanionLowLatencySkywalkInterface(llw);
+    fLLWIf = llw;
+    LLW_LOG("llw created, bsd %s", llw->getBSDName() ?: "(null)");
+    return true;
+}
+
+// Runs on a thread_call, never on the controller workloop. Converges on the latest requested state.
+void AirportItlwmAWDLInterface::
+llwWork()
+{
+    for (;;) {
+        IOLockLock(fLLWLock);
+        bool want = fLLWWant;
+        IOLockUnlock(fLLWLock);
+        if (want)
+            createLLWInterface();
+        else
+            teardownLLWInterface();
+        IOLockLock(fLLWLock);
+        if (fLLWWant == want) {
+            fLLWScheduled = false;
+            IOLockUnlock(fLLWLock);
+            break;
+        }
+        IOLockUnlock(fLLWLock);
+    }
+    release(); // balances the retain in requestLLW()
+}
+
+void AirportItlwmAWDLInterface::
+requestLLW(bool create)
+{
+    if (!fLLWLock || !fLLWCall)
+        return;
+    IOLockLock(fLLWLock);
+    if (fLLWDying) {
+        IOLockUnlock(fLLWLock);
+        return;
+    }
+    fLLWWant = create;
+    bool schedule = !fLLWScheduled;
+    fLLWScheduled = true;
+    IOLockUnlock(fLLWLock);
+    if (schedule) {
+        retain();
+        thread_call_enter(fLLWCall);
+    }
 }
 
 IOReturn AirportItlwmAWDLInterface::
@@ -3510,54 +3633,19 @@ setCOMPANION_SKYWALK_IF_CREATE(apple80211_companion_skywalk_if_create *d)
         LLW_LOG("COMPANION_SKYWALK_IF_CREATE ignored (no -itlllw)");
         return kIOReturnSuccess;
     }
+    if (!fController)
+        return kIOReturnNotReady;
     AirportItlwmCompanionCreate *out = (AirportItlwmCompanionCreate *)d;
+    LLW_LOG("enable=%u version=%u", out->enable, out->version);
     if (out->enable == 0) {
-        if (!fLLWIf)
-            return kIOReturnNoDevice;
-        LLW_LOG("destroying llw0");
-        destroyLLWInterface();
+        requestLLW(false);
         return kIOReturnSuccess;
     }
     if (out->enable != 1)
         return kIOReturnSuccess;
-    if (fLLWIf) {
-        strlcpy(out->bsd_name, fLLWIf->getBSDName() ?: "llw0", sizeof(out->bsd_name));
-        return kIOReturnSuccess;
-    }
-    if (!fController)
-        return kIOReturnNotReady;
-    AirportItlwmLLWInterface *llw = AirportItlwmLLWInterface::withController(fController, &fMac);
-    if (!llw)
-        return kIOReturnNoMemory;
-    llw->setLowLatencyEnabled(true);
-    llw->setParentInterface(this);
-    llw->setCompanionInterfaceId(getInterfaceId());
-    llw->setInitMacAddress(fMac);
-    if (!llw->attach(fController)) {
-        llw->setParentInterface(nullptr);
-        llw->release();
-        return kIOReturnError;
-    }
-    if (!llw->start(fController)) {
-        LLW_LOG("llw0 start failed");
-        llw->detach(fController);
-        llw->setParentInterface(nullptr);
-        llw->release();
-        return kIOReturnError;
-    }
-    if (!llw->setupDatapath() || !llw->registerDatapath()) {
-        LLW_LOG("llw0 datapath setup failed");
-        llw->freeDatapath();
-        llw->stop(fController);
-        llw->detach(fController);
-        llw->setParentInterface(nullptr);
-        llw->release();
-        return kIOReturnError;
-    }
-    setCompanionLowLatencySkywalkInterface(llw);
-    fLLWIf = llw;
-    strlcpy(out->bsd_name, llw->getBSDName() ?: "llw0", sizeof(out->bsd_name));
-    LLW_LOG("llw0 created, bsd %s", out->bsd_name);
+    // start() can't complete on this (gated) thread, so create asynchronously and report the expected name.
+    requestLLW(true);
+    strlcpy(out->bsd_name, fLLWIf ? (fLLWIf->getBSDName() ?: "llw0") : "llw0", sizeof(out->bsd_name));
     return kIOReturnSuccess;
 }
 

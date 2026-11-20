@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.63] — 2026-11-20
+
+### Fixed
+
+- `llw0` (`-itlllw`): create and destroy now run on a `thread_call` instead of inside the `COMPANION_SKYWALK_IF_CREATE` ioctl. 2.7.62 showed `AirportItlwmLLWInterface::start` waiting 13 s for a power-management callout (`waitForPMDriverCall timeout`) and being torn down, most likely because the callout needs the controller workloop that the ioctl was holding. The ioctl now returns at once with `llw0`; requests are coalesced and teardown waits for the worker.
+
 ## [2.7.62] — 2026-11-20
 
 ### Changed

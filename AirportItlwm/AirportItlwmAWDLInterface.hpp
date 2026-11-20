@@ -185,6 +185,11 @@ public:
     // Stop and remove the AW timer; call before the interface is stopped.
     void teardownAW();
     void destroyLLWInterface();
+    // Async create/destroy of llw0 (the ioctl runs on the controller workloop; start() waits for PM there).
+    void requestLLW(bool create);
+    void llwWork();
+    bool createLLWInterface();
+    void teardownLLWInterface();
 
 private:
     // Host-side availability window timeline (what Broadcom firmware does with
@@ -435,6 +440,11 @@ private:
     uint32_t fSyncState;
     uint64_t fCallCount;
     class AirportItlwmLLWInterface *fLLWIf;
+    thread_call_t fLLWCall;
+    IOLock *fLLWLock;
+    bool fLLWWant;
+    bool fLLWScheduled;
+    bool fLLWDying;
 };
 
 
