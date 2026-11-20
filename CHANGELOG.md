@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.70] — 2026-11-20
+
+### Added
+
+- `llw0` (`-itlllw`): report the link as active, the way `AppleBCMWLANLowLatencyInterface::setInterfaceEnable` does (`IOSkywalkNetworkInterface::reportLinkStatus` with status 3 = active and medium 0x80 = IEEE 802.11). `IOSkywalkNetworkBSDClient` creates the `llw0` ifnet asynchronously after `registerService()`, and `reportLinkStatus` returns `kIOReturnNotReady` until then, so the LLW worker thread waits up to about 3 s for the ifnet. `LLWStatus` now ends with the link result. No packets flow through `llw0` yet.
+
+### Changed
+
+- The `IOSkywalkNetworkInterface::reportLinkStatus` declaration now returns `IOReturn`, like the kernel function, so the result can be checked. The mangled name is unchanged.
+
 ## [2.7.69] — 2026-11-20
 
 ### Fixed

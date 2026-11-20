@@ -476,6 +476,9 @@ public:
     // Registers the pool + queues with the family (builds logical link / nexus).
     bool registerDatapath();
     IOSkywalkPacketBufferPool *pool() const { return fPool; }
+    // Link status as AppleBCMWLANLowLatencyInterface::setInterfaceEnable reports it:
+    // reportLinkStatus(3 active / 1 inactive, 0x80 IEEE 802.11 medium). Needs the llw0 ifnet to exist.
+    IOReturn reportLLWLink(bool active);
 private:
     static uint32_t txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *q, IOSkywalkPacket *const *pkts, uint32_t n, void *ref);
     static uint32_t rxAction(OSObject *owner, IOSkywalkRxCompletionQueue *q, IOSkywalkPacket **pkts, uint32_t n, void *ref);

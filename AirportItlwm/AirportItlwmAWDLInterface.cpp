@@ -3599,6 +3599,14 @@ destroyLLWInterface()
         release();
 }
 
+IOReturn AirportItlwmLLWInterface::
+reportLLWLink(bool active)
+{
+    // kIOSkywalkNetworkLinkStatusActive = 3, ...Inactive = 1; medium 0x80 = kIOMediumIEEE80211.
+    // reportLinkStatus returns kIOReturnNotReady until IOSkywalkNetworkBSDClient has created the ifnet.
+    return reportLinkStatus(active ? 3 : 1, 0x80);
+}
+
 bool AirportItlwmAWDLInterface::
 createLLWInterface()
 {
@@ -3663,10 +3671,20 @@ createLLWInterface()
     strlcpy(fLLWBsdName, bsd ?: "llw0", sizeof(fLLWBsdName));
     if (fLLWLock)
         IOLockUnlock(fLLWLock);
+    // Report link up like AppleBCMWLANLowLatencyInterface::setInterfaceEnable. The llw0 ifnet is created
+    // asynchronously after registerService(), so wait for it; we run on fLLWCall, off the workloop.
+    // Gives up after ~3 s or when the AWDL interface is going away.
+    IOReturn linkRet = kIOReturnNotReady;
+    for (int i = 0; i < 150 && !fLLWDying && !llw->getBSDInterface(); i++)
+        IOSleep(20);
+    if (!fLLWDying && llw->getBSDInterface())
+        linkRet = llw->reportLLWLink(true);
     {
         OSString *role = OSDynamicCast(OSString, llw->getProperty("IO80211InterfaceRole"));
-        char m[96];
-        snprintf(m, sizeof(m), "created, service registered, role %s", role ? role->getCStringNoCopy() : "(none)");
+        char m[128];
+        snprintf(m, sizeof(m), "created, service registered, role %s, link %s (0x%x)",
+                 role ? role->getCStringNoCopy() : "(none)",
+                 linkRet == kIOReturnSuccess ? "active" : "not reported", linkRet);
         setProperty("LLWStatus", m);
     }
     LLW_LOG("llw created, bsd %s", bsd ?: "(null)");
