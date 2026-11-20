@@ -133,6 +133,10 @@ private: virtual void _abi_0cd0() __asm__("__ZN23IO80211VirtualInterface8findPee
     OSMetaClassDeclareReservedUnused(IO80211VirtualInterface, 14);
     OSMetaClassDeclareReservedUnused(IO80211VirtualInterface, 15);
 
+public:
+    void setCompanionLowLatencySkywalkInterface(IO80211SkywalkInterface *);
+private:
+
     // IO80211VirtualInterface::init stores its ivars pointer at 0x128
     // (IO80211SkywalkInterface ends there); the Apple object is 0x130 bytes.
 private: uint8_t _layout[0x130 - sizeof(IO80211SkywalkInterface)];

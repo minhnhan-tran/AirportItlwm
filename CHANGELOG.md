@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.61] — 2026-11-20
+
+### Fixed
+
+- **AWDL / `llw0` companion Skywalk interface (`-itlllw`)**: fixed seven setup and teardown defects found against `AppleBCMWLANCoreMac` / `IO80211Family` disassembly:
+  - Handle `enable == 0` at `+0x04` of `apple80211_companion_skywalk_if_create` to tear down `llw0` instead of treating `+0x00..+0x07` as an opaque header.
+  - Set interface role `9` (instead of vendor init type `2`) and override `IOSkywalkNetworkInterface::getBSDNamePrefix()` to return `"llw"` (instead of inheriting `"en"`).
+  - Call `setInitMacAddress`, `setParentInterface(this)`, and `IO80211InfraInterface::start(fController)` before datapath registration, and link `setCompanionLowLatencySkywalkInterface(llw)` on `awdl0`.
+  - Declare `IOSkywalkPacketQueue` as an `IOEventSource` subclass and attach/detach `fTxQ` and `fRxQ` on the interface workloop (`addEventSource` / `removeEventSource`).
+  - Populate `RegistrationInfo` fields (`+0x0c`, `+0x14`, `+0x24`, `+0x28`, `+0x30 = "llw"`, `+0x3c`, `+0x40`, `+0x108` MAC) and register via `IO80211InfraInterface::registerInfraEthernetInterface` instead of calling `registerEthernetInterface` directly.
+  - Deregister the Skywalk interface (`deregisterEthernetInterface(0)`), remove queue event sources, stop, detach, and unlink companion pointers in `destroyLLWInterface()` (invoked on `enable == 0`, `destroyAWDLInterface()`, and `free()`).
+
 ## [2.7.60] — 2026-11-20
 
 ### Added

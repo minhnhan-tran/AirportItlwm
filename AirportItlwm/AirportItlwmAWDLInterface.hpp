@@ -184,6 +184,7 @@ public:
     uint64_t rxActionFrames() const { return fRxAF; }
     // Stop and remove the AW timer; call before the interface is stopped.
     void teardownAW();
+    void destroyLLWInterface();
 
 private:
     // Host-side availability window timeline (what Broadcom firmware does with
@@ -449,7 +450,9 @@ class AirportItlwmLLWInterface : public IO80211InfraInterface {
     OSDeclareDefaultStructors(AirportItlwmLLWInterface)
 public:
     static AirportItlwmLLWInterface *withController(AirportItlwm *controller, const ether_addr *mac);
+    const char *getBSDNamePrefix() override;
     bool setupDatapath();
+    void teardownDatapath();
     void freeDatapath();
     void free() override;
     IOReturn setMacAddress(mloAddrArray &) override { return kIOReturnSuccess; }
@@ -464,6 +467,8 @@ private:
     IOSkywalkPacketBufferPool *fPool;
     IOSkywalkTxSubmissionQueue *fTxQ;
     IOSkywalkRxCompletionQueue *fRxQ;
+    bool fEventsAdded;
+    bool fRegistered;
 };
 
 #endif /* AIRPORT_WCL && Tahoe */

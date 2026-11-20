@@ -21,11 +21,12 @@
 #define IOSkywalkPacketQueue_h
 
 #include <IOKit/IOService.h>
+#include <IOKit/IOEventSource.h>
 #include "IOSkywalkPacketBufferPool.h"
 
 class IOSkywalkPacket;
 
-class IOSkywalkPacketQueue : public OSObject {
+class IOSkywalkPacketQueue : public IOEventSource {
 public:
     // Non-virtual state getters were not needed; intentionally empty.
 };

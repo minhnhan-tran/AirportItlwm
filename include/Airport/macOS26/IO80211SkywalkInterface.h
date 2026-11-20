@@ -206,6 +206,8 @@ public:
     uint32_t getInterfaceId();
     void setCompanionInterfaceId(unsigned int);
     void setLowLatencyEnabled(bool);
+    void setInitMacAddress(ether_addr &);
+    void setParentInterface(class IO80211VirtualInterface *);
 };
 static_assert(sizeof(IO80211SkywalkInterface) == 0x128, "WCL ABI size");
 #endif
