@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.65] — 2026-11-20
+
+### Added
+
+- `llw0` (`-itlllw`): the AWDL interface now publishes an `LLWStatus` property in the I/O Registry (`requested`, `attach failed`, `start failed`, `datapath failed: <step>`, `created`), because `IOLog` output from the kext does not reach `dmesg` here. 2.7.64 no longer hit the PM timeout (`start()` completed) but the interface was stopped again within 1 ms, which points at the datapath setup.
+
 ## [2.7.64] — 2026-11-20
 
 ### Fixed

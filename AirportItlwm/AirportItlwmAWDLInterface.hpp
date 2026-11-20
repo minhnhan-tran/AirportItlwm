@@ -484,6 +484,8 @@ private:
     IOSkywalkRxCompletionQueue *fRxQ;
     bool fEventsAdded;
     bool fRegistered;
+public:
+    const char *fLastErr; // last failing setup step, surfaced via the AWDL interface's LLWStatus property
 };
 
 #endif /* AIRPORT_WCL && Tahoe */
