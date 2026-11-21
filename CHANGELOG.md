@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.72] — 2026-11-21
+
+### Added
+
+- `llw0` (`-itlllw`), observation only, groundwork for the AWDL bridge. The TX action now records what the stack submits on `llw0` before returning each packet to the pool untransmitted, as before: `LLWTxCalls`, `LLWTxPackets`, `LLWTxBytes`, `LLWTxMultiBuf`, `LLWTxNoBuf` and `LLWTxNonIP`, plus `LLWTxFlows` (up to 8 IP flows) on the `AirportItlwmLLWInterface` node. The first 8 frames are logged in hex (`AirportItlwm: LLW tx`). Packet data is read through the exported `IOSkywalkPacket` accessors (`getPacketBufferCount`, `getDataVirtualAddress`, `getDataOffset`, `getDataLength`), called by symbol rather than through the SDK's outdated vtable.
+- AWDL RX: `AWDLRxFlows` lists the 12 most recently seen unicast IP flows received over AWDL (protocol, addresses, ports, packets, bytes). `AWDLDataRxULA` counts frames sent to IPv6 ULA (fc00::/7) addresses, which low-latency `llw0` flows use. `AWDLRxFlowPkts`, `AWDLRxFlowNew` and `AWDLRxFlowReplaced` are also published.
+
 ## [2.7.71] — 2026-11-20
 
 ### Changed

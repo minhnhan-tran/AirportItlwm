@@ -22,6 +22,20 @@
 #include <IOKit/IOLocks.h>
 #include <kern/thread_call.h>
 
+// One observed IP flow (2.7.72 llw0 observation): IPv4 addresses use the first 4 bytes.
+struct AirportItlwmFlowObs {
+    uint8_t src[16];
+    uint8_t dst[16];
+    uint16_t etype;
+    uint16_t sport;
+    uint16_t dport;
+    uint8_t proto;
+    uint8_t used;
+    uint32_t seen;   // sequence of the last packet, for least-recently-seen replacement
+    uint32_t pkts;
+    uint64_t bytes;
+};
+
 class AirportItlwm;
 struct ieee80211_rxinfo;
 
@@ -361,6 +375,13 @@ public:
     uint64_t fDataRxBadShort;     // data frame with no room for LLC+AWDL headers
     uint64_t fDataRxBadSnap;      // not the Apple AWDL SNAP header
     uint64_t fDataRxNull;         // QoS-null / null data: no payload, expected
+    // 2.7.72 llw0 observation: recent unicast IP flows received over AWDL, and frames to IPv6 ULA (fc00::/7).
+    AirportItlwmFlowObs fRxFlows[12];
+    uint32_t fRxFlowSeq;
+    uint64_t fRxFlowPkts;
+    uint64_t fRxFlowNew;
+    uint64_t fRxFlowReplaced;
+    uint64_t fDataRxULA;
     uint32_t fDataRxBadLastLen;
     uint16_t fDataRxBadLastFc;    // fc[0] | fc[1] << 8
     uint16_t fDataRxBadLastHdr;   // 802.11 header length assumed
@@ -377,6 +398,8 @@ public:
     uint64_t fDataRxLen[4];
     uint32_t fDataRxMaxLen;
     void publishDataState();
+    // Records the IP flow of a received AWDL Ethernet frame (first len contiguous bytes, total frame length).
+    void noteRxEth(const uint8_t *eth, size_t len, uint32_t total);
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
     void enqueueData(mbuf_t m);
     void flushData(uint8_t chan = 0);
@@ -486,6 +509,8 @@ public:
 private:
     static uint32_t txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *q, IOSkywalkPacket *const *pkts, uint32_t n, void *ref);
     static uint32_t rxAction(OSObject *owner, IOSkywalkRxCompletionQueue *q, IOSkywalkPacket **pkts, uint32_t n, void *ref);
+    void observeTx(IOSkywalkPacket *pkt);
+    void publishTx();
     AirportItlwm *fController;
     ether_addr fMac;
     IOSkywalkPacketBufferPool *fPool;
@@ -493,6 +518,15 @@ private:
     IOSkywalkRxCompletionQueue *fRxQ;
     bool fEventsAdded;
     bool fRegistered;
+    // 2.7.72 observation of what the stack submits on llw0 (nothing is transmitted yet).
+    uint64_t fTxCalls;
+    uint64_t fTxPkts;
+    uint64_t fTxBytes;
+    uint64_t fTxMulti;
+    uint64_t fTxNoBuf;
+    uint64_t fTxNonIP;
+    uint32_t fTxFlowSeq;
+    AirportItlwmFlowObs fTxFlows[8];
 public:
     const char *fLastErr; // last failing setup step, surfaced via the AWDL interface's LLWStatus property
     bool fServiceRegistered; // registerService() done, so IOSkywalkNetworkBSDClient can attach and create llw0

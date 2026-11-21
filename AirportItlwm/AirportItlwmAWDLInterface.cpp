@@ -187,6 +187,7 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
                 awdl->fDataRxLastType = (uint16_t)((sh[28] << 8) | sh[29]);
                 if (awdl->fDataRx <= 4 || (awdl->fDataRx & 0x1f) == 0)
                     awdl->publishDataState();
+                awdl->noteRxEth(d, ethLen, (uint32_t)ethLen);
                 ifnet_stat_increment_in(getIfnet(), 1, (u_int32_t)ethLen, 0);
                 inputPacket(out, (UInt32)ethLen, 0, out);
                 off += next;
@@ -259,6 +260,14 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         awdl->publishDataState();
     // IONetworkInterface does not account these on awdl0 (netstat showed 0 in,
     // bytes included), so count them on the ifnet here.
+    {
+        // The 64-byte pullup ran before the strip, so the first mbuf may hold less than the
+        // Ethernet + IPv6 + port bytes the flow table needs; copy them out instead.
+        uint8_t hb[64];
+        size_t hl = mbuf_pkthdr_len(m) < sizeof(hb) ? (size_t)mbuf_pkthdr_len(m) : sizeof(hb);
+        if (mbuf_copydata(m, 0, hl, hb) == 0)
+            awdl->noteRxEth(hb, hl, (uint32_t)mbuf_pkthdr_len(m));
+    }
     ifnet_stat_increment_in(getIfnet(), 1, (u_int32_t)mbuf_pkthdr_len(m), 0);
     inputPacket(m, (UInt32)mbuf_pkthdr_len(m), 0, m);
     return 1;
@@ -1937,6 +1946,130 @@ flushData(uint8_t chan)
     }
 }
 
+// ---- 2.7.72 flow observation helpers (llw0 bridge groundwork) ----
+static void
+flowObsFmtAddr(char *out, size_t cap, uint16_t etype, const uint8_t *a)
+{
+    if (etype == 0x0800)
+        snprintf(out, cap, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
+    else
+        snprintf(out, cap, "%x:%x:%x:%x:%x:%x:%x:%x",
+                 (a[0] << 8) | a[1], (a[2] << 8) | a[3], (a[4] << 8) | a[5], (a[6] << 8) | a[7],
+                 (a[8] << 8) | a[9], (a[10] << 8) | a[11], (a[12] << 8) | a[13], (a[14] << 8) | a[15]);
+}
+
+// Records the IP flow of an Ethernet frame whose first len bytes are contiguous.
+// Returns 1 for a new flow, 2 for a new flow that replaced the least recently seen one,
+// 0 for an existing flow, -1 if the frame is not unicast IP (multicast skipped when skipMcast).
+static int
+flowObsNote(AirportItlwmFlowObs *tab, int max, uint32_t *seq, const uint8_t *eth, size_t len,
+            uint32_t total, bool skipMcast)
+{
+    if (len < 14)
+        return -1;
+    uint16_t et = (uint16_t)((eth[12] << 8) | eth[13]);
+    const uint8_t *ip = eth + 14;
+    size_t il = len - 14;
+    uint8_t src[16] = {}, dst[16] = {};
+    uint8_t proto;
+    size_t l4;
+    if (et == 0x86dd) {
+        if (il < 40)
+            return -1;
+        memcpy(src, ip + 8, 16);
+        memcpy(dst, ip + 24, 16);
+        if (skipMcast && dst[0] == 0xff)
+            return -1;
+        proto = ip[6];
+        l4 = 40;
+    } else if (et == 0x0800) {
+        if (il < 20)
+            return -1;
+        l4 = (size_t)(ip[0] & 0xf) * 4;
+        if (l4 < 20)
+            return -1;
+        memcpy(src, ip + 12, 4);
+        memcpy(dst, ip + 16, 4);
+        if (skipMcast && dst[0] >= 224)
+            return -1;
+        proto = ip[9];
+    } else
+        return -1;
+    uint16_t sp = 0, dp = 0;
+    if ((proto == 6 || proto == 17) && il >= l4 + 4) {
+        sp = (uint16_t)((ip[l4] << 8) | ip[l4 + 1]);
+        dp = (uint16_t)((ip[l4 + 2] << 8) | ip[l4 + 3]);
+    }
+    uint32_t now = ++*seq;
+    int freeSlot = -1, oldest = 0;
+    for (int i = 0; i < max; i++) {
+        AirportItlwmFlowObs *f = &tab[i];
+        if (!f->used) {
+            if (freeSlot < 0)
+                freeSlot = i;
+            continue;
+        }
+        if (f->etype == et && f->proto == proto && f->sport == sp && f->dport == dp &&
+            !memcmp(f->src, src, 16) && !memcmp(f->dst, dst, 16)) {
+            f->pkts++;
+            f->bytes += total;
+            f->seen = now;
+            return 0;
+        }
+        if (f->seen < tab[oldest].seen || !tab[oldest].used)
+            oldest = i;
+    }
+    int ret = 1;
+    if (freeSlot < 0) {
+        freeSlot = oldest;
+        ret = 2;
+    }
+    AirportItlwmFlowObs *f = &tab[freeSlot];
+    memcpy(f->src, src, 16);
+    memcpy(f->dst, dst, 16);
+    f->etype = et;
+    f->proto = proto;
+    f->sport = sp;
+    f->dport = dp;
+    f->used = 1;
+    f->seen = now;
+    f->pkts = 1;
+    f->bytes = total;
+    return ret;
+}
+
+static OSArray *
+flowObsArray(const AirportItlwmFlowObs *tab, int max)
+{
+    OSArray *arr = OSArray::withCapacity((unsigned)max);
+    if (!arr)
+        return nullptr;
+    for (int i = 0; i < max; i++) {
+        const AirportItlwmFlowObs *f = &tab[i];
+        if (!f->used)
+            continue;
+        char s[48], d[48], pn[8], line[176];
+        flowObsFmtAddr(s, sizeof(s), f->etype, f->src);
+        flowObsFmtAddr(d, sizeof(d), f->etype, f->dst);
+        if (f->proto == 17)
+            strlcpy(pn, "udp", sizeof(pn));
+        else if (f->proto == 6)
+            strlcpy(pn, "tcp", sizeof(pn));
+        else if (f->proto == 58)
+            strlcpy(pn, "icmp6", sizeof(pn));
+        else
+            snprintf(pn, sizeof(pn), "p%u", f->proto);
+        snprintf(line, sizeof(line), "%s %s.%u > %s.%u n=%u b=%llu", pn, s, f->sport, d, f->dport,
+                 f->pkts, f->bytes);
+        OSString *str = OSString::withCString(line);
+        if (str) {
+            arr->setObject(str);
+            str->release();
+        }
+    }
+    return arr;
+}
+
 void AirportItlwmAWDLInterface::
 publishDataState()
 {
@@ -1977,6 +2110,36 @@ publishDataState()
     setProperty("AWDLDataTxNotCommon", fDataTxNotCommon, 64);
     setProperty("AWDLListenOwn", fListenOwn, 64);
     setProperty("AWDLListenPeerSlots", fListenPeerSlots, 64);
+}
+
+void AirportItlwmAWDLInterface::
+noteRxEth(const uint8_t *eth, size_t len, uint32_t total)
+{
+    // Runs in the AWDL RX path only, so the table needs no lock.
+    int r = flowObsNote(fRxFlows, 12, &fRxFlowSeq, eth, len, total, true);
+    if (r < 0)
+        return;
+    fRxFlowPkts++;
+    if (len >= 14 + 40 && eth[12] == 0x86 && eth[13] == 0xdd && (eth[14 + 24] & 0xfe) == 0xfc)
+        fDataRxULA++;
+    bool pub = (fRxFlowPkts & 0xff) == 0;
+    if (r > 0) {
+        fRxFlowNew++;
+        if (r == 2)
+            fRxFlowReplaced++;
+        pub |= fRxFlowNew <= 32 || (fRxFlowNew & 0x1f) == 0;
+    }
+    if (!pub)
+        return;
+    OSArray *a = flowObsArray(fRxFlows, 12);
+    if (a) {
+        setProperty("AWDLRxFlows", a);
+        a->release();
+    }
+    setProperty("AWDLRxFlowPkts", fRxFlowPkts, 64);
+    setProperty("AWDLRxFlowNew", fRxFlowNew, 64);
+    setProperty("AWDLRxFlowReplaced", fRxFlowReplaced, 64);
+    setProperty("AWDLDataRxULA", fDataRxULA, 64);
 }
 
 void AirportItlwmAWDLInterface::
@@ -3393,14 +3556,78 @@ stop(IOService *provider)
     IO80211InfraInterface::stop(provider);
 }
 
+// Exported, non-virtual IOSkywalkFamily accessors (const in the macOS 26 kernel), called by symbol:
+// the SDK header declares them as non-const virtuals with an older vtable layout.
+extern "C" UInt32 llwPktBufferCount(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket20getPacketBufferCountEv");
+extern "C" UInt32 llwPktDataLength(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket13getDataLengthEv");
+extern "C" UInt16 llwPktDataOffset(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket13getDataOffsetEv");
+extern "C" void *llwPktDataVA(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket21getDataVirtualAddressEv");
+
+void AirportItlwmLLWInterface::
+publishTx()
+{
+    setProperty("LLWTxCalls", fTxCalls, 64);
+    setProperty("LLWTxPackets", fTxPkts, 64);
+    setProperty("LLWTxBytes", fTxBytes, 64);
+    setProperty("LLWTxMultiBuf", fTxMulti, 64);
+    setProperty("LLWTxNoBuf", fTxNoBuf, 64);
+    setProperty("LLWTxNonIP", fTxNonIP, 64);
+    OSArray *a = flowObsArray(fTxFlows, 8);
+    if (a) {
+        setProperty("LLWTxFlows", a);
+        a->release();
+    }
+}
+
+void AirportItlwmLLWInterface::
+observeTx(IOSkywalkPacket *pkt)
+{
+    // Observation only: the caller still returns the packet to the pool untransmitted.
+    fTxPkts++;
+    UInt32 bufs = llwPktBufferCount(pkt);
+    // getDataVirtualAddress reads buffer 0 unchecked, so never call it on a packet without buffers.
+    const uint8_t *base = bufs ? (const uint8_t *)llwPktDataVA(pkt) : nullptr;
+    if (!base) {
+        fTxNoBuf++;
+        if (fTxNoBuf <= 4)
+            publishTx();
+        return;
+    }
+    UInt32 len = llwPktDataLength(pkt);
+    UInt16 off = llwPktDataOffset(pkt);
+    fTxBytes += len;
+    int r = -1;
+    if (bufs == 1) {
+        // Single buffer: the whole frame is contiguous at base + off.
+        const uint8_t *frame = base + off;
+        if (fTxPkts <= 8) {
+            char hex[2 * 32 + 1];
+            UInt32 dump = len < 32 ? len : 32;
+            for (UInt32 i = 0; i < dump; i++)
+                snprintf(hex + 2 * i, 3, "%02x", frame[i]);
+            hex[2 * dump] = 0;
+            IOLog("AirportItlwm: LLW tx #%llu len %u off %u: %s\n", fTxPkts, len, off, hex);
+        }
+        r = flowObsNote(fTxFlows, 8, &fTxFlowSeq, frame, len, len, false);
+        if (r < 0)
+            fTxNonIP++;
+    } else
+        fTxMulti++;
+    if (r > 0 || fTxPkts <= 4 || (fTxPkts & 0x3f) == 0)
+        publishTx();
+}
+
 uint32_t AirportItlwmLLWInterface::
 txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *, IOSkywalkPacket *const *pkts, uint32_t n, void *)
 {
     AirportItlwmLLWInterface *self = OSDynamicCast(AirportItlwmLLWInterface, owner);
     if (self && self->fPool && pkts) {
+        self->fTxCalls++;
         for (uint32_t i = 0; i < n; i++) {
-            if (pkts[i])
-                self->fPool->deallocatePacket(pkts[i]);
+            if (!pkts[i])
+                continue;
+            self->observeTx(pkts[i]);
+            self->fPool->deallocatePacket(pkts[i]);
         }
     }
     return n;
