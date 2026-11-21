@@ -378,7 +378,9 @@ extern int itlwm_awdl_rt_dwell;
 bool AirportItlwmAWDLInterface::
 llwRealtime()
 {
-    return fPeerTrafficActive == 0 && hostUs() < fLLWActiveUntilUs;
+    // airportd sets peer traffic during some Continuity Camera sessions too (2.7.77 test), so llw0
+    // activity alone selects the realtime policy.
+    return hostUs() < fLLWActiveUntilUs;
 }
 
 uint32_t AirportItlwmAWDLInterface::
@@ -1235,9 +1237,7 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
     if (err == 0 && home && chan == home) {
         uint64_t d = (uint64_t)dwellTU * 1024;
         uint64_t cool;
-        if (fPeerTrafficActive > 0) {
-            cool = d;
-        } else if (llwRealtime()) {
+        if (llwRealtime()) {
             // llw0 realtime stream: the iPhone's realtime schedule sits on the infra channel and its
             // frames are only received during these listens (about 25% duty with the 3x default).
             int c = itlwm_awdl_rt_cool;
@@ -1245,6 +1245,8 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
             fRTHomeListens++;
             if ((fRTHomeListens & 0x3f) == 1)
                 setProperty("AWDLListenHomeRT", fRTHomeListens, 64);
+        } else if (fPeerTrafficActive > 0) {
+            cool = d;
         } else {
             cool = d * 3;
         }

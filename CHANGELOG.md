@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.78] — 2026-11-21
+
+### Fixed
+- Continuity Camera realtime listen policy never applied: in the 2.7.77 test airportd did set `AWDLPeerTrafficActive` = 1 for the session, and 2.7.77 only used the realtime policy when it was 0. Changing `debug.itlwm.awdl_rt_cool` therefore had no effect, and the stream ran at about 0.85 Mbit/s and 3 fps. Now llw0 activity alone selects the policy.
+
+### Changed
+- Realtime defaults: `debug.itlwm.awdl_rt_cool` 0 (back-to-back home-channel listens) and `debug.itlwm.awdl_rt_dwell` 128 TU. Both the iPhone and the Mac advertise 14 of 16 slots on the infra channel, in two 7-slot (112 TU) runs per AWDL period, and the aligned scheduler caps each listen to its run.
+
 ## [2.7.77] — 2026-11-21
 
 ### Changed

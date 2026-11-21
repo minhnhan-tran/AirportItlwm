@@ -153,9 +153,9 @@ int itlwm_llw_tx = 1;
 // While llw0 carries traffic (Continuity Camera), AWDL listens on the infra channel use these instead
 // of the 64 TU / 3x-cooldown defaults: cooldown after each listen = rt_cool x its dwell (0 = back to back).
 extern int itlwm_awdl_rt_cool;
-int itlwm_awdl_rt_cool = 1;
+int itlwm_awdl_rt_cool = 0;
 extern int itlwm_awdl_rt_dwell;
-int itlwm_awdl_rt_dwell = 64;
+int itlwm_awdl_rt_dwell = 128;
 extern int itlwm_ihs_ie;
 int itlwm_ihs_ie = 1;
 extern int itlwm_awdl_infra_nth;
