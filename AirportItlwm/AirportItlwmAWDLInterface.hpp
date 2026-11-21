@@ -387,6 +387,7 @@ public:
     uint64_t fDataRxLLWSub;
     uint64_t fDataRxLLWNoIf;
     uint64_t fDataRxLLWBusy;
+    uint64_t fDataRxLLWMsdu;
     uint32_t fDataRxBadLastLen;
     uint16_t fDataRxBadLastFc;    // fc[0] | fc[1] << 8
     uint16_t fDataRxBadLastHdr;   // 802.11 header length assumed
@@ -405,7 +406,8 @@ public:
     void publishDataState();
     // Records the IP flow of a received AWDL Ethernet frame (first len contiguous bytes, total frame length).
     void noteRxEth(const uint8_t *eth, size_t len, uint32_t total);
-    // Routes a received llw0 frame (nsub A-MSDU subframes with RFC 1042 SNAP, starting at hdr) to llw0.
+    // Routes a received llw0 frame to llw0: nsub A-MSDU subframes with RFC 1042 SNAP starting at hdr, or,
+    // with nsub == 0, one plain MSDU whose RFC 1042 SNAP header starts at hdr.
     void inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub);
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
     void enqueueData(mbuf_t m);
@@ -546,6 +548,7 @@ private:
     uint64_t fRxULA;
     uint64_t fRxNoPkt;
     uint64_t fRxNoBuf;
+    uint64_t fRxPrepFail;
     uint64_t fRxTooBig;
     uint64_t fRxCopyFail;
     uint64_t fRxSetupFail;

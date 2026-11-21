@@ -110,6 +110,17 @@ static bool llwAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
     return n > 0 && (off >= total || total - off < 14);
 }
 
+// Plain (non-A-MSDU) llw0 frame: RFC 1042 SNAP + IPv6 right after the 802.11 header.
+static bool llwMsduValid(mbuf_t m, size_t hdr)
+{
+    static const uint8_t kSnapIPv6[8] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00, 0x86, 0xdd };
+    uint8_t snap[8];
+    size_t total = mbuf_pkthdr_len(m);
+    if (hdr < 24 || total < hdr + 8 + 40 || mbuf_copydata(m, hdr, sizeof(snap), snap))
+        return false;
+    return !memcmp(snap, kSnapIPv6, sizeof(snap));
+}
+
 static bool awdlAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
 {
     static const uint8_t kSnap[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x17, 0xf2 };
@@ -227,6 +238,11 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         }
         if (!tooShort && llwAmsduValid(m, hdr, &nsub)) {
             awdl->inputLLWFrame(m, hdr, nsub);
+            mbuf_freem(m);
+            return 1;
+        }
+        if (!tooShort && llwMsduValid(m, hdr)) {
+            awdl->inputLLWFrame(m, hdr, 0);
             mbuf_freem(m);
             return 1;
         }
@@ -2149,6 +2165,7 @@ publishDataState()
     setProperty("AWDLDataRxLLWSub", fDataRxLLWSub, 64);
     setProperty("AWDLDataRxLLWNoIf", fDataRxLLWNoIf, 64);
     setProperty("AWDLDataRxLLWBusy", fDataRxLLWBusy, 64);
+    setProperty("AWDLDataRxLLWMsdu", fDataRxLLWMsdu, 64);
 }
 
 void AirportItlwmAWDLInterface::
@@ -2198,11 +2215,29 @@ inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub)
             busy = true;
     }
     size_t total = mbuf_pkthdr_len(m), off = hdr;
+    bool single = nsub == 0;
+    if (single) {
+        fDataRxLLWMsdu++;
+        nsub = 1;
+    }
     for (unsigned i = 0; i < nsub && off + 22 <= total; i++) {
         uint8_t sh[22];
-        if (mbuf_copydata(m, off, sizeof(sh), sh))
-            break;
-        size_t sublen = ((size_t)sh[12] << 8) | sh[13];
+        size_t sublen;
+        if (single) {
+            // Plain MSDU, no DS bits: DA = addr1, SA = addr2. Build the same 22-byte header an A-MSDU
+            // subframe has (DA, SA, length, SNAP) and point off 14 bytes before the SNAP header, so the
+            // payload sits at off + 22 like a subframe's.
+            if (mbuf_copydata(m, 4, 12, sh) || mbuf_copydata(m, hdr, 8, sh + 14))
+                break;
+            sublen = total - hdr;
+            sh[12] = (uint8_t)(sublen >> 8);
+            sh[13] = (uint8_t)sublen;
+            off = hdr - 14;
+        } else {
+            if (mbuf_copydata(m, off, sizeof(sh), sh))
+                break;
+            sublen = ((size_t)sh[12] << 8) | sh[13];
+        }
         if (sublen < 8 || off + 14 + sublen > total)
             break;
         fDataRxLLWSub++;
@@ -3655,12 +3690,17 @@ extern "C" IOReturn llwPoolAlloc(IOSkywalkPacketBufferPool *, UInt32, IOSkywalkP
 extern "C" IOReturn llwPoolFree(IOSkywalkPacketBufferPool *, IOSkywalkPacket *) __asm("__ZN25IOSkywalkPacketBufferPool16deallocatePacketEP15IOSkywalkPacket");
 extern "C" IOReturn llwPktSetDataOffLen(IOSkywalkPacket *, UInt16, UInt32) __asm("__ZN15IOSkywalkPacket22setDataOffsetAndLengthEtj");
 extern "C" IOReturn llwPktSetL2Len(IOSkywalkPacket *, uint8_t) __asm("__ZN22IOSkywalkNetworkPacket19setLinkHeaderLengthEh");
+// allocatePacket only binds a kernel packet. The IOSkywalkPacketBuffer objects (and so the data address)
+// are attached by prepareWithQueue, as IOSkywalkRxSubmissionQueue::refillRxRing does.
+extern "C" IOReturn llwPktPrepare(IOSkywalkPacket *, IOSkywalkPacketQueue *, UInt32, IOOptionBits) __asm("__ZN15IOSkywalkPacket16prepareWithQueueEP20IOSkywalkPacketQueuejj");
+// kIOSkywalkPacketDirectionRx in the SDK's IOSkywalkPacket.h (not visible in this translation unit).
+static const UInt32 kLLWDirRx = 2;
 extern "C" IOReturn llwRxEnqueue(IOSkywalkRxCompletionQueue *, IOSkywalkPacket *const *, UInt32, IOOptionBits) __asm("__ZN26IOSkywalkRxCompletionQueue14enqueuePacketsEPKP15IOSkywalkPacketjj");
 
 // Buffer size of the llw0 packet pool (one buffer per packet, see setupDatapath).
 static const UInt32 kLLWBufSize = 2048;
 enum { kLLWRxOK = 0, kLLWRxNotReady, kLLWRxTooBig, kLLWRxNoPkt, kLLWRxNoBuf, kLLWRxCopyFail, kLLWRxSetupFail,
-       kLLWRxGateBusy, kLLWRxEnqFail };
+       kLLWRxGateBusy, kLLWRxEnqFail, kLLWRxPrepFail };
 
 // IOWorkLoop's gate calls are protected in the SDK. Reach them through a pointer to member formed in a
 // derived class (well-defined C++); no object of this type is ever created.
@@ -3756,6 +3796,7 @@ publishRx()
     setProperty("LLWRxULA", fRxULA, 64);
     setProperty("LLWRxNoPacket", fRxNoPkt, 64);
     setProperty("LLWRxNoBuf", fRxNoBuf, 64);
+    setProperty("LLWRxPrepareFail", fRxPrepFail, 64);
     setProperty("LLWRxTooBig", fRxTooBig, 64);
     setProperty("LLWRxCopyFail", fRxCopyFail, 64);
     setProperty("LLWRxSetupFail", fRxSetupFail, 64);
@@ -3777,6 +3818,14 @@ rxDeliver(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen, IOReturn *err)
     // Option 1 = do not sleep: this runs in the Wi-Fi RX path.
     if (llwPoolAlloc(fPool, 1, &pkt, 1) != kIOReturnSuccess || !pkt)
         return kLLWRxNoPkt;
+    // No source queue: completeWithQueue then skips the source queue's packetCompletion callback, which the
+    // base IOSkywalkPacketQueue implements as a panic. deallocatePacket still completes a prepared packet.
+    IOReturn pr = llwPktPrepare(pkt, nullptr, kLLWDirRx, 0);
+    if (pr != kIOReturnSuccess) {
+        *err = pr;
+        llwPoolFree(fPool, pkt);
+        return kLLWRxPrepFail;
+    }
     // getDataVirtualAddress reads buffer 0 unchecked, so check the buffer count first.
     uint8_t *base = llwPktBufferCount(pkt) ? (uint8_t *)llwPktDataVA(pkt) : nullptr;
     if (!base) {
@@ -3859,6 +3908,7 @@ inputSubframe(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen)
     case kLLWRxCopyFail: cnt = &fRxCopyFail; break;
     case kLLWRxSetupFail: cnt = &fRxSetupFail; break;
     case kLLWRxGateBusy: cnt = &fRxGateBusy; break;
+    case kLLWRxPrepFail: cnt = &fRxPrepFail; break;
     default: cnt = &fRxEnqFail; break;
     }
     if (cnt)

@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.74] — 2026-11-21
+
+### Fixed
+
+- `llw0` RX bridge: in the 2.7.73 test every received camera subframe was routed to `llw0` (`LLWRxIn` 15744, all to IPv6 ULA addresses), but every one failed as `LLWRxNoBuf`. `IOSkywalkPacketBufferPool::allocatePacket` only binds a kernel packet; the `IOSkywalkPacketBuffer` objects, and so the data address, are attached by `IOSkywalkPacket::prepareWithQueue`, as `IOSkywalkRxSubmissionQueue::refillRxRing` does. The RX path now prepares each packet (direction RX, no source queue) before writing it. With no source queue, completion skips the source queue's `packetCompletion` callback, which the base `IOSkywalkPacketQueue` implements as a panic. New counter `LLWRxPrepareFail`.
+- `llw0` RX bridge: plain (non-A-MSDU) llw0 frames are now routed too. In the 2.7.73 test, 1455 frames were still dropped as `AWDLDataRxBadSnap`; they carry RFC 1042 SNAP + IPv6 (`aa aa 03 00 00 00 86 dd`) right after the 802.11 header. They are delivered with DA = addr1 and SA = addr2. New counter `AWDLDataRxLLWMsdu`.
+
 ## [2.7.73] — 2026-11-21
 
 ### Added
