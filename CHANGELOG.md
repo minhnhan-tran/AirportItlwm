@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.76] — 2026-11-21
+
+### Fixed
+- `llw0` TX bridge: free the allocated mbuf and count `LLWTxForwardFail` instead of `LLWTxForwarded` when `_fCommandGate->runAction` returns an error without invoking the enqueue action; explicitly initialize `fQueuesEnabled` in `withController`.
+
 ## [2.7.75] — 2026-11-21
 
 ### Fixed

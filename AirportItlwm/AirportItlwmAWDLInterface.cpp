@@ -3655,6 +3655,7 @@ withController(AirportItlwm *controller, const ether_addr *mac)
     llw->fServiceRegistered = false;
     llw->fUniqueId = 0;
     llw->fEventsAdded = false;
+    llw->fQueuesEnabled = false;
     llw->fRegistered = false;
     llw->setInterfaceRole(kAirportItlwmLLWRole);
     return llw;
@@ -3844,10 +3845,15 @@ forwardTx(AirportItlwmAWDLInterface *awdl, IOSkywalkPacket *pkt)
     if (cwl && cwl->inGate()) {
         awdl->enqueueData(m, AirportItlwmAWDLInterface::kDataKindLLW);
     } else if (_fCommandGate) {
-        _fCommandGate->runAction([](OSObject *, void *owner, void *pkt, void *, void *) -> IOReturn {
+        IOReturn gr = _fCommandGate->runAction([](OSObject *, void *owner, void *pkt, void *, void *) -> IOReturn {
             static_cast<AirportItlwmAWDLInterface *>(owner)->enqueueData((mbuf_t)pkt, AirportItlwmAWDLInterface::kDataKindLLW);
             return kIOReturnSuccess;
         }, awdl, m);
+        if (gr != kIOReturnSuccess) {
+            mbuf_freem(m);
+            fTxFwdFail++;
+            return;
+        }
     } else {
         mbuf_freem(m);
         fTxFwdFail++;
