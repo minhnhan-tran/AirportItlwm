@@ -86,6 +86,30 @@ static uint64_t hostUs();
 // padded to 4 bytes except the last. The Intel receive path hands these over whole
 // with the QoS A-MSDU bit already cleared, so they only show up as a SNAP mismatch.
 // Validate every subframe first so a frame is either split completely or left alone.
+// llw0 (low-latency, e.g. Continuity Camera) frames from the peer use the same A-MSDU subframe layout,
+// but with standard RFC 1042 SNAP (aa aa 03 00 00 00 + EtherType) instead of Apple's AWDL SNAP.
+// iwx clears the QoS A-MSDU bit after hardware de-aggregation, so they arrive as plain QoS data.
+static bool llwAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
+{
+    static const uint8_t kRfc1042[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
+    size_t total = mbuf_pkthdr_len(m), off = hdr;
+    unsigned n = 0;
+    while (off + 22 <= total) {
+        uint8_t sh[22];
+        if (mbuf_copydata(m, off, sizeof(sh), sh))
+            return false;
+        size_t sublen = ((size_t)sh[12] << 8) | sh[13];
+        if (sublen < 8 || sublen > 2304 || off + 14 + sublen > total)
+            return false;
+        if (memcmp(sh + 14, kRfc1042, sizeof(kRfc1042)))
+            return false;
+        n++;
+        off += (14 + sublen + 3) & ~(size_t)3;
+    }
+    *nsub = n;
+    return n > 0 && (off >= total || total - off < 14);
+}
+
 static bool awdlAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
 {
     static const uint8_t kSnap[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x17, 0xf2 };
@@ -128,6 +152,12 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         uint16_t qos = p[hdr] | (p[hdr + 1] << 8);
         hdr += 2;
         if (qos & IEEE80211_QOS_AMSDU) {
+            unsigned nsub = 0;
+            if (llwAmsduValid(m, hdr, &nsub)) {
+                awdl->inputLLWFrame(m, hdr, nsub);
+                mbuf_freem(m);
+                return 1;
+            }
             // Not produced by the peer so far; count and drop.
             awdl->fDataRxAmsdu++;
             mbuf_freem(m);
@@ -192,6 +222,11 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
                 inputPacket(out, (UInt32)ethLen, 0, out);
                 off += next;
             }
+            mbuf_freem(m);
+            return 1;
+        }
+        if (!tooShort && llwAmsduValid(m, hdr, &nsub)) {
+            awdl->inputLLWFrame(m, hdr, nsub);
             mbuf_freem(m);
             return 1;
         }
@@ -2110,6 +2145,10 @@ publishDataState()
     setProperty("AWDLDataTxNotCommon", fDataTxNotCommon, 64);
     setProperty("AWDLListenOwn", fListenOwn, 64);
     setProperty("AWDLListenPeerSlots", fListenPeerSlots, 64);
+    setProperty("AWDLDataRxLLW", fDataRxLLW, 64);
+    setProperty("AWDLDataRxLLWSub", fDataRxLLWSub, 64);
+    setProperty("AWDLDataRxLLWNoIf", fDataRxLLWNoIf, 64);
+    setProperty("AWDLDataRxLLWBusy", fDataRxLLWBusy, 64);
 }
 
 void AirportItlwmAWDLInterface::
@@ -2140,6 +2179,55 @@ noteRxEth(const uint8_t *eth, size_t len, uint32_t total)
     setProperty("AWDLRxFlowNew", fRxFlowNew, 64);
     setProperty("AWDLRxFlowReplaced", fRxFlowReplaced, 64);
     setProperty("AWDLDataRxULA", fDataRxULA, 64);
+}
+
+void AirportItlwmAWDLInterface::
+inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub)
+{
+    fDataRxLLW++;
+    AirportItlwmLLWInterface *llw = nullptr;
+    bool busy = false;
+    if (fLLWLock) {
+        // Never block in the RX path: the LLW worker holds fLLWLock while it creates or destroys llw0.
+        if (IOLockTryLock(fLLWLock)) {
+            llw = fLLWIf;
+            if (llw)
+                llw->retain();
+            IOLockUnlock(fLLWLock);
+        } else
+            busy = true;
+    }
+    size_t total = mbuf_pkthdr_len(m), off = hdr;
+    for (unsigned i = 0; i < nsub && off + 22 <= total; i++) {
+        uint8_t sh[22];
+        if (mbuf_copydata(m, off, sizeof(sh), sh))
+            break;
+        size_t sublen = ((size_t)sh[12] << 8) | sh[13];
+        if (sublen < 8 || off + 14 + sublen > total)
+            break;
+        fDataRxLLWSub++;
+        {
+            // Also feed AWDLRxFlows / AWDLDataRxULA, whether or not llw0 exists.
+            uint8_t hb[64];
+            size_t pl = sublen - 8, cl = pl < sizeof(hb) - 14 ? pl : sizeof(hb) - 14;
+            memcpy(hb, sh, 12);
+            hb[12] = sh[20];
+            hb[13] = sh[21];
+            if (cl == 0 || mbuf_copydata(m, off + 22, cl, hb + 14) == 0)
+                noteRxEth(hb, 14 + cl, (uint32_t)(14 + pl));
+        }
+        if (llw)
+            llw->inputSubframe(m, off, sh, sublen);
+        off += (14 + sublen + 3) & ~(size_t)3;
+    }
+    if (llw)
+        llw->release();
+    else if (busy)
+        fDataRxLLWBusy++;
+    else
+        fDataRxLLWNoIf++;
+    if (fDataRxLLW <= 4 || (fDataRxLLW & 0xff) == 0)
+        publishDataState();
 }
 
 void AirportItlwmAWDLInterface::
@@ -3562,6 +3650,32 @@ extern "C" UInt32 llwPktBufferCount(const IOSkywalkPacket *) __asm("__ZNK15IOSky
 extern "C" UInt32 llwPktDataLength(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket13getDataLengthEv");
 extern "C" UInt16 llwPktDataOffset(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket13getDataOffsetEv");
 extern "C" void *llwPktDataVA(const IOSkywalkPacket *) __asm("__ZNK15IOSkywalkPacket21getDataVirtualAddressEv");
+// Exported IOSkywalkFamily calls for the llw0 RX bridge, bound by symbol for the same reason.
+extern "C" IOReturn llwPoolAlloc(IOSkywalkPacketBufferPool *, UInt32, IOSkywalkPacket **, IOOptionBits) __asm("__ZN25IOSkywalkPacketBufferPool14allocatePacketEjPP15IOSkywalkPacketj");
+extern "C" IOReturn llwPoolFree(IOSkywalkPacketBufferPool *, IOSkywalkPacket *) __asm("__ZN25IOSkywalkPacketBufferPool16deallocatePacketEP15IOSkywalkPacket");
+extern "C" IOReturn llwPktSetDataOffLen(IOSkywalkPacket *, UInt16, UInt32) __asm("__ZN15IOSkywalkPacket22setDataOffsetAndLengthEtj");
+extern "C" IOReturn llwPktSetL2Len(IOSkywalkPacket *, uint8_t) __asm("__ZN22IOSkywalkNetworkPacket19setLinkHeaderLengthEh");
+extern "C" IOReturn llwRxEnqueue(IOSkywalkRxCompletionQueue *, IOSkywalkPacket *const *, UInt32, IOOptionBits) __asm("__ZN26IOSkywalkRxCompletionQueue14enqueuePacketsEPKP15IOSkywalkPacketjj");
+
+// Buffer size of the llw0 packet pool (one buffer per packet, see setupDatapath).
+static const UInt32 kLLWBufSize = 2048;
+enum { kLLWRxOK = 0, kLLWRxNotReady, kLLWRxTooBig, kLLWRxNoPkt, kLLWRxNoBuf, kLLWRxCopyFail, kLLWRxSetupFail,
+       kLLWRxGateBusy, kLLWRxEnqFail };
+
+// IOWorkLoop's gate calls are protected in the SDK. Reach them through a pointer to member formed in a
+// derived class (well-defined C++); no object of this type is ever created.
+struct LLWWorkLoopGate : public IOWorkLoop {
+    static bool tryClose(IOWorkLoop *wl)
+    {
+        bool (IOWorkLoop::*fn)() = &LLWWorkLoopGate::tryCloseGate;
+        return (wl->*fn)();
+    }
+    static void open(IOWorkLoop *wl)
+    {
+        void (IOWorkLoop::*fn)() = &LLWWorkLoopGate::openGate;
+        (wl->*fn)();
+    }
+};
 
 void AirportItlwmLLWInterface::
 publishTx()
@@ -3627,10 +3741,132 @@ txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *, IOSkywalkPacket *const *
             if (!pkts[i])
                 continue;
             self->observeTx(pkts[i]);
-            self->fPool->deallocatePacket(pkts[i]);
+            llwPoolFree(self->fPool, pkts[i]);
         }
     }
     return n;
+}
+
+void AirportItlwmLLWInterface::
+publishRx()
+{
+    setProperty("LLWRxIn", fRxIn, 64);
+    setProperty("LLWRxPackets", fRxPkts, 64);
+    setProperty("LLWRxBytes", fRxBytes, 64);
+    setProperty("LLWRxULA", fRxULA, 64);
+    setProperty("LLWRxNoPacket", fRxNoPkt, 64);
+    setProperty("LLWRxNoBuf", fRxNoBuf, 64);
+    setProperty("LLWRxTooBig", fRxTooBig, 64);
+    setProperty("LLWRxCopyFail", fRxCopyFail, 64);
+    setProperty("LLWRxSetupFail", fRxSetupFail, 64);
+    setProperty("LLWRxNotReady", fRxNotReady, 64);
+    setProperty("LLWRxGateBusy", fRxGateBusy, 64);
+    setProperty("LLWRxEnqueueFail", fRxEnqFail, 64);
+    setProperty("LLWRxLastError", (unsigned long long)(uint32_t)fRxLastErr, 32);
+}
+
+int AirportItlwmLLWInterface::
+rxDeliver(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen, IOReturn *err)
+{
+    size_t ethLen = 14 + (sublen - 8);
+    if (!fPool || !fRxQ)
+        return kLLWRxNotReady;
+    if (ethLen > kLLWBufSize)
+        return kLLWRxTooBig;
+    IOSkywalkPacket *pkt = nullptr;
+    // Option 1 = do not sleep: this runs in the Wi-Fi RX path.
+    if (llwPoolAlloc(fPool, 1, &pkt, 1) != kIOReturnSuccess || !pkt)
+        return kLLWRxNoPkt;
+    // getDataVirtualAddress reads buffer 0 unchecked, so check the buffer count first.
+    uint8_t *base = llwPktBufferCount(pkt) ? (uint8_t *)llwPktDataVA(pkt) : nullptr;
+    if (!base) {
+        llwPoolFree(fPool, pkt);
+        return kLLWRxNoBuf;
+    }
+    // Ethernet header: DA and SA from the subframe header, EtherType from its SNAP header.
+    memcpy(base, sh, 12);
+    base[12] = sh[20];
+    base[13] = sh[21];
+    if (sublen > 8 && mbuf_copydata(m, off + 22, sublen - 8, base + 14)) {
+        llwPoolFree(fPool, pkt);
+        return kLLWRxCopyFail;
+    }
+    IOReturn r = llwPktSetDataOffLen(pkt, 0, (UInt32)ethLen);
+    if (r == kIOReturnSuccess)
+        r = llwPktSetL2Len(pkt, 14);
+    if (r != kIOReturnSuccess) {
+        *err = r;
+        llwPoolFree(fPool, pkt);
+        return kLLWRxSetupFail;
+    }
+    // Read everything needed from the buffer now: once enqueued, the packet belongs to the netif.
+    bool ula = ethLen >= 14 + 40 && base[12] == 0x86 && base[13] == 0xdd && (base[14 + 24] & 0xfe) == 0xfc;
+    bool logIt = fRxPkts < 8;
+    char hex[2 * 32 + 1];
+    hex[0] = 0;
+    if (logIt) {
+        UInt32 dump = ethLen < 32 ? (UInt32)ethLen : 32;
+        for (UInt32 i = 0; i < dump; i++)
+            snprintf(hex + 2 * i, 3, "%02x", base[i]);
+        hex[2 * dump] = 0;
+    }
+    // enqueuePackets closes the queue's gate itself; take it first with tryCloseGate so the RX path
+    // never blocks on another workloop's gate.
+    IOWorkLoop *wl = static_cast<IOEventSource *>(fRxQ)->getWorkLoop();
+    if (!wl) {
+        llwPoolFree(fPool, pkt);
+        return kLLWRxNotReady;
+    }
+    if (!LLWWorkLoopGate::tryClose(wl)) {
+        llwPoolFree(fPool, pkt);
+        return kLLWRxGateBusy;
+    }
+    // removeEventSource needs this gate, so once we hold it the queue can no longer be detached; but it may
+    // have been detached (teardown) between getWorkLoop() and tryClose. Re-check before enqueueing.
+    if (static_cast<IOEventSource *>(fRxQ)->getWorkLoop() != wl) {
+        LLWWorkLoopGate::open(wl);
+        llwPoolFree(fPool, pkt);
+        return kLLWRxNotReady;
+    }
+    r = llwRxEnqueue(fRxQ, &pkt, 1, 0);
+    LLWWorkLoopGate::open(wl);
+    if (r != kIOReturnSuccess) {
+        // Every failing return of enqueuePackets leaves the packet with the caller.
+        *err = r;
+        llwPoolFree(fPool, pkt);
+        return kLLWRxEnqFail;
+    }
+    fRxBytes += ethLen;
+    if (ula)
+        fRxULA++;
+    if (logIt)
+        IOLog("AirportItlwm: LLW rx #%llu len %u: %s\n", fRxPkts + 1, (unsigned)ethLen, hex);
+    return kLLWRxOK;
+}
+
+void AirportItlwmLLWInterface::
+inputSubframe(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen)
+{
+    fRxIn++;
+    IOReturn err = kIOReturnSuccess;
+    uint64_t *cnt = nullptr;
+    switch (rxDeliver(m, off, sh, sublen, &err)) {
+    case kLLWRxOK: fRxPkts++; break;
+    case kLLWRxNotReady: cnt = &fRxNotReady; break;
+    case kLLWRxTooBig: cnt = &fRxTooBig; break;
+    case kLLWRxNoPkt: cnt = &fRxNoPkt; break;
+    case kLLWRxNoBuf: cnt = &fRxNoBuf; break;
+    case kLLWRxCopyFail: cnt = &fRxCopyFail; break;
+    case kLLWRxSetupFail: cnt = &fRxSetupFail; break;
+    case kLLWRxGateBusy: cnt = &fRxGateBusy; break;
+    default: cnt = &fRxEnqFail; break;
+    }
+    if (cnt)
+        (*cnt)++;
+    if (err != kIOReturnSuccess)
+        fRxLastErr = err;
+    if (fRxIn <= 8 || (fRxIn & 0x7f) == 0 || (cnt && *cnt <= 4))
+        publishRx();
 }
 
 uint32_t AirportItlwmLLWInterface::
@@ -3647,7 +3883,7 @@ setupDatapath()
     memset(&opts, 0, sizeof(opts));
     opts.packetCount = 128;
     opts.bufferCount = 128;
-    opts.bufferSize = 2048;
+    opts.bufferSize = kLLWBufSize;
     opts.maxBuffersPerPacket = 1;
     opts.memorySegmentSize = 0;
     opts.poolFlags = 0;

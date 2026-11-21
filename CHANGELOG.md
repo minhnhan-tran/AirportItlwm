@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.73] — 2026-11-21
+
+### Added
+
+- `llw0` (`-itlllw`) RX bridge. The iPhone sends Continuity Camera media to the shared `awdl0`/`llw0` MAC as QoS data frames in A-MSDU subframe layout with standard RFC 1042 SNAP (`aa aa 03 00 00 00` + EtherType), while AWDL frames carry Apple's SNAP (`00 17 f2 08 00`). iwx clears the QoS A-MSDU bit, so 2.7.72 dropped all of them as `AWDLDataRxBadSnap`. `inputAWDLData` now recognises these frames, rebuilds each subframe as an Ethernet frame in a packet from `llw0`'s pool, and hands it to `llw0`'s Skywalk RX completion queue. The RX path never blocks: it takes the `llw0` pointer with `IOLockTryLock` and the queue's workloop gate with `tryCloseGate`, and drops the frame (counted) when either is busy.
+- Counters on the AWDL interface: `AWDLDataRxLLW`, `AWDLDataRxLLWSub`, `AWDLDataRxLLWNoIf` and `AWDLDataRxLLWBusy`. On the `llw0` node: `LLWRxIn`, `LLWRxPackets`, `LLWRxBytes` and `LLWRxULA`, plus the failure counters `LLWRxNoPacket`, `LLWRxNoBuf`, `LLWRxTooBig`, `LLWRxCopyFail`, `LLWRxSetupFail`, `LLWRxNotReady`, `LLWRxGateBusy`, `LLWRxEnqueueFail` and `LLWRxLastError`. The first 8 delivered frames are logged in hex (`AirportItlwm: LLW rx`). These frames also feed `AWDLRxFlows` and `AWDLDataRxULA`.
+
+### Changed
+
+- The `llw0` TX action returns packets to the pool through the exported `IOSkywalkPacketBufferPool::deallocatePacket` symbol instead of the SDK's outdated vtable.
+
 ## [2.7.72] — 2026-11-21
 
 ### Added

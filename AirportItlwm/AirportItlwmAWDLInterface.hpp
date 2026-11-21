@@ -382,6 +382,11 @@ public:
     uint64_t fRxFlowNew;
     uint64_t fRxFlowReplaced;
     uint64_t fDataRxULA;
+    // 2.7.73: llw0 frames (A-MSDU subframes with RFC 1042 SNAP) routed to llw0.
+    uint64_t fDataRxLLW;
+    uint64_t fDataRxLLWSub;
+    uint64_t fDataRxLLWNoIf;
+    uint64_t fDataRxLLWBusy;
     uint32_t fDataRxBadLastLen;
     uint16_t fDataRxBadLastFc;    // fc[0] | fc[1] << 8
     uint16_t fDataRxBadLastHdr;   // 802.11 header length assumed
@@ -400,6 +405,8 @@ public:
     void publishDataState();
     // Records the IP flow of a received AWDL Ethernet frame (first len contiguous bytes, total frame length).
     void noteRxEth(const uint8_t *eth, size_t len, uint32_t total);
+    // Routes a received llw0 frame (nsub A-MSDU subframes with RFC 1042 SNAP, starting at hdr) to llw0.
+    void inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub);
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
     void enqueueData(mbuf_t m);
     void flushData(uint8_t chan = 0);
@@ -506,11 +513,16 @@ public:
     // only when the infra link state is kIO80211NetworkLinkUp; only setLinkState(Internal) sets it.
     // Returns the raw setLinkState result for LLWStatus.
     int setLLWLinkState(bool up);
+    // Delivers one received subframe (header sh: DA, SA, length, SNAP + EtherType; payload at off + 22)
+    // to llw0 as an Ethernet frame. Called from the Wi-Fi RX path only.
+    void inputSubframe(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen);
 private:
     static uint32_t txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *q, IOSkywalkPacket *const *pkts, uint32_t n, void *ref);
     static uint32_t rxAction(OSObject *owner, IOSkywalkRxCompletionQueue *q, IOSkywalkPacket **pkts, uint32_t n, void *ref);
     void observeTx(IOSkywalkPacket *pkt);
     void publishTx();
+    int rxDeliver(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen, IOReturn *err);
+    void publishRx();
     AirportItlwm *fController;
     ether_addr fMac;
     IOSkywalkPacketBufferPool *fPool;
@@ -527,6 +539,20 @@ private:
     uint64_t fTxNonIP;
     uint32_t fTxFlowSeq;
     AirportItlwmFlowObs fTxFlows[8];
+    // 2.7.73 llw0 RX bridge counters (RX path only, so no lock).
+    uint64_t fRxIn;
+    uint64_t fRxPkts;
+    uint64_t fRxBytes;
+    uint64_t fRxULA;
+    uint64_t fRxNoPkt;
+    uint64_t fRxNoBuf;
+    uint64_t fRxTooBig;
+    uint64_t fRxCopyFail;
+    uint64_t fRxSetupFail;
+    uint64_t fRxNotReady;
+    uint64_t fRxGateBusy;
+    uint64_t fRxEnqFail;
+    IOReturn fRxLastErr;
 public:
     const char *fLastErr; // last failing setup step, surfaced via the AWDL interface's LLWStatus property
     bool fServiceRegistered; // registerService() done, so IOSkywalkNetworkBSDClient can attach and create llw0
