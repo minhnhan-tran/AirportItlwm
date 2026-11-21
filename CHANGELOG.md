@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.75] — 2026-11-21
+
+### Fixed
+- `llw0` RX: the IOSkywalk TX/RX queues are now enabled after registration and disabled before teardown, as `AppleBCMWLANSkywalkInterface::enableDatapath` does. `IOSkywalkPacketQueue::initWithPool` leaves them disabled. In the 2.7.74 test every llw0 frame (73088) failed with `kIOReturnOffline` (`LLWRxEnqueueFail`), and `txAction` was never called.
+
+### Added
+- `llw0` TX bridge: frames `llw0` transmits are copied into mbufs and sent to the AWDL peer through the AWDL data queue (same dwell/slot timing as awdl0), as 802.11 data with RFC 1042 SNAP and the frame's own ethertype (the iPhone's llw0 layout), without the AWDL data header. Switch `debug.itlwm.llw_tx` (default 1; 0 drops them as before). New counters `LLWTxForwarded`, `LLWTxForwardFail`, `AWDLDataTxLLW`, and property `LLWQueuesEnabled`.
+
 ## [2.7.74] — 2026-11-21
 
 ### Fixed

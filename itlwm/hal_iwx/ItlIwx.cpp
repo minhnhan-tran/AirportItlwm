@@ -147,6 +147,9 @@ static int itlwm_awdl_bss_promisc = 0;
  */
 extern int itlwm_awdl_home_listen;
 int itlwm_awdl_home_listen = 2;
+// 1 (default): frames llw0 transmits are sent to the AWDL peer (2.7.75); 0: dropped after observation.
+extern int itlwm_llw_tx;
+int itlwm_llw_tx = 1;
 extern int itlwm_ihs_ie;
 int itlwm_ihs_ie = 1;
 extern int itlwm_awdl_infra_nth;
@@ -206,6 +209,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_tx
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_listen, 0, "AWDL listens on the infra channel: 0 never, 1 peer traffic, 2 want data");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, llw_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_llw_tx, 0, "Send llw0 TX frames to the AWDL peer: 1 on, 0 drop");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
@@ -351,6 +355,7 @@ void ItlIwx::free()
     XYLog("%s\n", __FUNCTION__);
     if (itlwm_sysctl_registered) {
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_listen);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_llw_tx);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
@@ -15666,6 +15671,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_listen);
+        sysctl_register_oid(&sysctl__debug_itlwm_llw_tx);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);

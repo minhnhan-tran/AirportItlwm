@@ -1897,7 +1897,7 @@ trySendPendingOOB()
 }
 
 void AirportItlwmAWDLInterface::
-enqueueData(mbuf_t m)
+enqueueData(mbuf_t m, uint8_t kind)
 {
     if (!m)
         return;
@@ -1906,7 +1906,9 @@ enqueueData(mbuf_t m)
         mbuf_freem(m);
         return;
     }
-    fDataQ[(fDataQHead + fDataQCount) % kDataQueueLen] = m;
+    unsigned qi = (fDataQHead + fDataQCount) % kDataQueueLen;
+    fDataQ[qi] = m;
+    fDataQKind[qi] = kind;
     fDataQCount++;
     fDataTxQueued++;
     // Flush immediately when already on an active dwell or on the home channel
@@ -1948,8 +1950,11 @@ flushData(uint8_t chan)
     static uint8_t frame[2048];             // work loop only
     while (fDataQCount) {
         mbuf_t m = fDataQ[fDataQHead];
+        // llw0 frames: RFC 1042 SNAP with the frame's own ethertype and no AWDL data header,
+        // the layout the iPhone uses for its llw0 frames.
+        const bool llw = fDataQKind[fDataQHead] == kDataKindLLW;
         size_t plen = mbuf_pkthdr_len(m);
-        const size_t hdr = sizeof(struct ieee80211_frame), llc = 8, ad = 8;
+        const size_t hdr = sizeof(struct ieee80211_frame), llc = 8, ad = llw ? 0 : 8;
         if (plen < 14 || hdr + llc + ad + plen - 14 > sizeof(frame)) {
             fDataTxErr++;
         } else {
@@ -1966,13 +1971,18 @@ flushData(uint8_t chan)
             wh->i_seq[1] = sc >> 8;
             uint8_t *l = frame + hdr;
             l[0] = 0xaa; l[1] = 0xaa; l[2] = 0x03;
-            l[3] = 0x00; l[4] = 0x17; l[5] = 0xf2;
-            l[6] = 0x08; l[7] = 0x00;
-            uint8_t *a = l + llc;
-            a[0] = 0x03; a[1] = 0x04;
-            a[2] = fDataSeq & 0xff; a[3] = fDataSeq >> 8;
-            a[6] = eh[12]; a[7] = eh[13];
-            mbuf_copydata(m, 14, plen - 14, a + ad);
+            if (llw) {
+                l[3] = 0x00; l[4] = 0x00; l[5] = 0x00;
+                l[6] = eh[12]; l[7] = eh[13];
+            } else {
+                l[3] = 0x00; l[4] = 0x17; l[5] = 0xf2;
+                l[6] = 0x08; l[7] = 0x00;
+                uint8_t *a = l + llc;
+                a[0] = 0x03; a[1] = 0x04;
+                a[2] = fDataSeq & 0xff; a[3] = fDataSeq >> 8;
+                a[6] = eh[12]; a[7] = eh[13];
+            }
+            mbuf_copydata(m, 14, plen - 14, l + llc + ad);
             int err = ic->ic_awdl_tx(ic, txChan, frame, hdr + llc + ad + plen - 14);
             if (err == EAGAIN) {
                 fDataTxDeferred++;
@@ -1980,6 +1990,10 @@ flushData(uint8_t chan)
             }
             if (err) {
                 fDataTxErr++;
+            } else if (llw) {
+                fDataTxLLW++;
+                if (!(eh[0] & 1))
+                    notePeerTx(eh);
             } else {
                 fDataTx++;
                 fDataSeq++;
@@ -2157,6 +2171,7 @@ publishDataState()
     setProperty("AWDLDataTxDropFull", fDataTxDropFull, 64);
     setProperty("AWDLDataTxDeferred", fDataTxDeferred, 64);
     setProperty("AWDLDataTxErr", fDataTxErr, 64);
+    setProperty("AWDLDataTxLLW", fDataTxLLW, 64);
     setProperty("AWDLDataTxPending", fDataQCount, 32);
     setProperty("AWDLDataTxNotCommon", fDataTxNotCommon, 64);
     setProperty("AWDLListenOwn", fListenOwn, 64);
@@ -3699,6 +3714,8 @@ extern "C" IOReturn llwRxEnqueue(IOSkywalkRxCompletionQueue *, IOSkywalkPacket *
 
 // Buffer size of the llw0 packet pool (one buffer per packet, see setupDatapath).
 static const UInt32 kLLWBufSize = 2048;
+// debug.itlwm.llw_tx (ItlIwx.cpp).
+extern int itlwm_llw_tx;
 enum { kLLWRxOK = 0, kLLWRxNotReady, kLLWRxTooBig, kLLWRxNoPkt, kLLWRxNoBuf, kLLWRxCopyFail, kLLWRxSetupFail,
        kLLWRxGateBusy, kLLWRxEnqFail, kLLWRxPrepFail };
 
@@ -3726,6 +3743,8 @@ publishTx()
     setProperty("LLWTxMultiBuf", fTxMulti, 64);
     setProperty("LLWTxNoBuf", fTxNoBuf, 64);
     setProperty("LLWTxNonIP", fTxNonIP, 64);
+    setProperty("LLWTxForwarded", fTxFwd, 64);
+    setProperty("LLWTxForwardFail", fTxFwdFail, 64);
     OSArray *a = flowObsArray(fTxFlows, 8);
     if (a) {
         setProperty("LLWTxFlows", a);
@@ -3777,14 +3796,64 @@ txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *, IOSkywalkPacket *const *
     AirportItlwmLLWInterface *self = OSDynamicCast(AirportItlwmLLWInterface, owner);
     if (self && self->fPool && pkts) {
         self->fTxCalls++;
+        // forwardTx copies each frame before the packet goes back to the pool below.
+        AirportItlwmAWDLInterface *awdl = (itlwm_llw_tx && self->fController) ? self->fController->fAWDLIf : nullptr;
         for (uint32_t i = 0; i < n; i++) {
             if (!pkts[i])
                 continue;
             self->observeTx(pkts[i]);
+            if (awdl)
+                self->forwardTx(awdl, pkts[i]);
+            // deallocatePacket completes the packet to its TX submission queue, then frees it.
             llwPoolFree(self->fPool, pkts[i]);
         }
+        if (self->fTxCalls <= 8 || (self->fTxCalls & 0x3f) == 0)
+            self->publishTx();
     }
     return n;
+}
+
+void AirportItlwmLLWInterface::
+forwardTx(AirportItlwmAWDLInterface *awdl, IOSkywalkPacket *pkt)
+{
+    UInt32 bufs = llwPktBufferCount(pkt);
+    // getDataVirtualAddress reads buffer 0 unchecked; multi-buffer packets are not expected (2048-byte buffers).
+    const uint8_t *base = bufs == 1 ? (const uint8_t *)llwPktDataVA(pkt) : nullptr;
+    UInt32 len = base ? llwPktDataLength(pkt) : 0;
+    UInt16 off = base ? llwPktDataOffset(pkt) : 0;
+    if (!base || len < 14 || (UInt32)off + len > kLLWBufSize) {
+        fTxFwdFail++;
+        return;
+    }
+    mbuf_t m = nullptr;
+    if (mbuf_gethdr(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0 || !m) {
+        fTxFwdFail++;
+        return;
+    }
+    if (len > mbuf_maxlen(m) && (mbuf_mclget(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0 || len > mbuf_maxlen(m))) {
+        mbuf_freem(m);
+        fTxFwdFail++;
+        return;
+    }
+    memcpy(mbuf_data(m), base + off, len);
+    mbuf_setlen(m, len);
+    mbuf_pkthdr_setlen(m, len);
+    // The AWDL data queue and flushData's frame buffer are controller-work-loop only. Call directly
+    // when this queue already runs inside that gate, else hand off like awdl0's outputAWDL.
+    IOWorkLoop *cwl = fController ? fController->getWorkLoop() : nullptr;
+    if (cwl && cwl->inGate()) {
+        awdl->enqueueData(m, AirportItlwmAWDLInterface::kDataKindLLW);
+    } else if (_fCommandGate) {
+        _fCommandGate->runAction([](OSObject *, void *owner, void *pkt, void *, void *) -> IOReturn {
+            static_cast<AirportItlwmAWDLInterface *>(owner)->enqueueData((mbuf_t)pkt, AirportItlwmAWDLInterface::kDataKindLLW);
+            return kIOReturnSuccess;
+        }, awdl, m);
+    } else {
+        mbuf_freem(m);
+        fTxFwdFail++;
+        return;
+    }
+    fTxFwd++;
 }
 
 void AirportItlwmLLWInterface::
@@ -3955,6 +4024,14 @@ setupDatapath()
 void AirportItlwmLLWInterface::
 teardownDatapath()
 {
+    if (fQueuesEnabled) {
+        if (fRxQ)
+            fRxQ->disable();
+        if (fTxQ)
+            fTxQ->disable();
+        fQueuesEnabled = false;
+        setProperty("LLWQueuesEnabled", false);
+    }
     if (fRegistered) {
         deregisterEthernetInterface(0);
         fRegistered = false;
@@ -4034,6 +4111,14 @@ registerDatapath()
         return false;
     }
     fRegistered = true;
+    // IOSkywalkPacketQueue::initWithPool leaves the queues' event sources disabled, and
+    // AppleBCMWLANSkywalkInterface::enableDatapath enables them. A disabled RX completion queue
+    // returns kIOReturnOffline from enqueuePackets (2.7.74: every llw0 frame, LLWRxEnqueueFail),
+    // and a disabled TX submission queue never calls txAction.
+    fTxQ->enable();
+    fRxQ->enable();
+    fQueuesEnabled = true;
+    setProperty("LLWQueuesEnabled", true);
     return true;
 }
 

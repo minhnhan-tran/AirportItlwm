@@ -410,12 +410,15 @@ public:
     // with nsub == 0, one plain MSDU whose RFC 1042 SNAP header starts at hdr.
     void inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub);
     // Ethernet frames from awdl0, sent as AWDL data frames during a dwell.
-    void enqueueData(mbuf_t m);
+    // kDataKindLLW: frames from llw0, sent with RFC 1042 SNAP instead of the AWDL data header.
+    enum { kDataKindAWDL = 0, kDataKindLLW = 1 };
+    void enqueueData(mbuf_t m, uint8_t kind = kDataKindAWDL);
     void flushData(uint8_t chan = 0);
     // 32 overflowed during AirDrop (AWDLDataTxDropFull): data only
     // leaves in the peer's slots, so a burst from the stack has to wait.
     enum { kDataQueueLen = 256 };
     mbuf_t fDataQ[kDataQueueLen];
+    uint8_t fDataQKind[kDataQueueLen];
     unsigned fDataQHead;
     unsigned fDataQCount;
     uint16_t fDataSeq;
@@ -424,6 +427,7 @@ public:
     uint64_t fDataTxDropFull;
     uint64_t fDataTxDeferred;
     uint64_t fDataTxErr;
+    uint64_t fDataTxLLW;            // llw0 frames sent to the peer (2.7.75)
 private:
     IOTimerEventSource *fTxTimer;
     // Peer-cache completions owed to IO80211Family (see setPEER_CACHE_CONTROL).
@@ -522,6 +526,8 @@ private:
     static uint32_t txAction(OSObject *owner, IOSkywalkTxSubmissionQueue *q, IOSkywalkPacket *const *pkts, uint32_t n, void *ref);
     static uint32_t rxAction(OSObject *owner, IOSkywalkRxCompletionQueue *q, IOSkywalkPacket **pkts, uint32_t n, void *ref);
     void observeTx(IOSkywalkPacket *pkt);
+    // Copies one llw0 TX packet into an mbuf and queues it on the AWDL data path.
+    void forwardTx(AirportItlwmAWDLInterface *awdl, IOSkywalkPacket *pkt);
     void publishTx();
     int rxDeliver(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen, IOReturn *err);
     void publishRx();
@@ -532,6 +538,7 @@ private:
     IOSkywalkRxCompletionQueue *fRxQ;
     bool fEventsAdded;
     bool fRegistered;
+    bool fQueuesEnabled;
     // 2.7.72 observation of what the stack submits on llw0 (nothing is transmitted yet).
     uint64_t fTxCalls;
     uint64_t fTxPkts;
@@ -539,6 +546,8 @@ private:
     uint64_t fTxMulti;
     uint64_t fTxNoBuf;
     uint64_t fTxNonIP;
+    uint64_t fTxFwd;
+    uint64_t fTxFwdFail;
     uint32_t fTxFlowSeq;
     AirportItlwmFlowObs fTxFlows[8];
     // 2.7.73 llw0 RX bridge counters (RX path only, so no lock).
