@@ -372,6 +372,33 @@ static const uint16_t kListenParkTU = 16;
 extern int itlwm_awdl_home_listen;
 static const uint32_t kHomeListenMaxTU = 64;
 
+extern int itlwm_awdl_rt_cool;
+extern int itlwm_awdl_rt_dwell;
+
+bool AirportItlwmAWDLInterface::
+llwRealtime()
+{
+    return fPeerTrafficActive == 0 && hostUs() < fLLWActiveUntilUs;
+}
+
+uint32_t AirportItlwmAWDLInterface::
+peerTrafficEff()
+{
+    if (fPeerTrafficActive)
+        return fPeerTrafficActive;
+    return llwRealtime() ? 1 : 0;
+}
+
+uint32_t AirportItlwmAWDLInterface::
+homeListenMaxTU()
+{
+    if (llwRealtime()) {
+        int v = itlwm_awdl_rt_dwell;
+        return v < 16 ? 16 : (v > 512 ? 512 : (uint32_t)v);
+    }
+    return kHomeListenMaxTU;
+}
+
 static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData)
 {
     int mode = itlwm_awdl_home_listen;
@@ -1159,13 +1186,13 @@ maybeListen(uint32_t slotChannel, uint16_t seq)
         slotChannel = forced;
     uint32_t dwell = fListenDwellTU;
     if (home == slotChannel) {
-        if (!awHomeListenAllowed(fPeerTrafficActive, ic->ic_awdl_want_data) ||
+        if (!awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data) ||
             hostUs() < fHomeListenNotBeforeUs) {
             fListenSkippedHome++;
             return;
         }
-        if (dwell > kHomeListenMaxTU)
-            dwell = kHomeListenMaxTU;
+        if (dwell > homeListenMaxTU())
+            dwell = homeListenMaxTU();
     }
     // The peer's timeline is known: the listen timer picks the moments instead.
     if (fListenAlignedActive)
@@ -1180,7 +1207,7 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
 {
     ieee80211com *ic = fController->fHalService->get80211Controller();
     if (home && chan != home && ic->ic_opmode == IEEE80211_M_STA &&
-        ic->ic_state == IEEE80211_S_RUN && fPeerTrafficActive == 0) {
+        ic->ic_state == IEEE80211_S_RUN && peerTrafficEff() == 0) {
         unsigned nth = awInfraListenNth(ic->ic_awdl_want_data != 0);
         if (!nth || ++fListenInfraSlot % nth) {
             fListenInfraHold++;
@@ -1207,7 +1234,21 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
         fListenParkChan = (chan == home) ? home : 0;
     if (err == 0 && home && chan == home) {
         uint64_t d = (uint64_t)dwellTU * 1024;
-        fHomeListenNotBeforeUs = hostUs() + d + d * (fPeerTrafficActive > 0 ? 1 : 3);
+        uint64_t cool;
+        if (fPeerTrafficActive > 0) {
+            cool = d;
+        } else if (llwRealtime()) {
+            // llw0 realtime stream: the iPhone's realtime schedule sits on the infra channel and its
+            // frames are only received during these listens (about 25% duty with the 3x default).
+            int c = itlwm_awdl_rt_cool;
+            cool = d * (uint64_t)(c < 0 ? 0 : (c > 8 ? 8 : c));
+            fRTHomeListens++;
+            if ((fRTHomeListens & 0x3f) == 1)
+                setProperty("AWDLListenHomeRT", fRTHomeListens, 64);
+        } else {
+            cool = d * 3;
+        }
+        fHomeListenNotBeforeUs = hostUs() + d + cool;
         fHomeListens++;
         setProperty("AWDLListenHome", fHomeListens, 64);
     }
@@ -1385,7 +1426,7 @@ scheduleOwnListen(uint64_t afterUs)
     // non-home channel, listen there instead (on unless -itlawdlnopeerlisten).
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
         fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
-    bool homeOk = awHomeListenAllowed(fPeerTrafficActive, ic->ic_awdl_want_data);
+    bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data);
     for (int i = 0; i < 32; i++, k++) {
         uint16_t seq = (uint16_t)(fRefSeq + k * pm);
         uint8_t chan = ownChannelAt(seq);
@@ -1409,10 +1450,11 @@ scheduleOwnListen(uint64_t afterUs)
         if (fromPeer)
             fListenPeerSlots++;
         uint32_t dwell = (uint32_t)((run * slot + lead) / 1024);
-        if (dwell > fListenDwellTU)
+        // In realtime mode the home-channel listen may run past the normal dwell limit.
+        if (dwell > fListenDwellTU && !(atHome && llwRealtime()))
             dwell = fListenDwellTU;
-        if (atHome && dwell > kHomeListenMaxTU)
-            dwell = kHomeListenMaxTU;
+        if (atHome && dwell > homeListenMaxTU())
+            dwell = homeListenMaxTU();
         fListenNextChan = chan;
         fListenNextDwellTU = dwell;
         fListenNextHome = atHome;
@@ -1486,7 +1528,7 @@ listenTimerFired(OSObject *owner, IOTimerEventSource *)
     if (ic && ic->ic_awdl_listen && ic->ic_state == IEEE80211_S_RUN && ic->ic_bss) {
         unsigned home = ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan);
         bool ok = home != that->fListenNextChan ||
-            (that->fListenNextHome && awHomeListenAllowed(that->fPeerTrafficActive, ic->ic_awdl_want_data));
+            (that->fListenNextHome && awHomeListenAllowed(that->peerTrafficEff(), ic->ic_awdl_want_data));
         if (ok && !(++that->fListenSlot % that->fListenEveryNth)) {
             uint64_t before = that->fListenStarted;
             that->startListen(that->fListenNextChan, dwell, home, true);
@@ -1992,6 +2034,7 @@ flushData(uint8_t chan)
                 fDataTxErr++;
             } else if (llw) {
                 fDataTxLLW++;
+                fLLWActiveUntilUs = hostUs() + 2000000;
                 if (!(eh[0] & 1))
                     notePeerTx(eh);
             } else {
@@ -2217,6 +2260,7 @@ void AirportItlwmAWDLInterface::
 inputLLWFrame(mbuf_t m, size_t hdr, unsigned nsub)
 {
     fDataRxLLW++;
+    fLLWActiveUntilUs = hostUs() + 2000000;
     AirportItlwmLLWInterface *llw = nullptr;
     bool busy = false;
     if (fLLWLock) {
@@ -2698,6 +2742,8 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fListenParkChan = 0;
     fListenParked = 0;
     fHomeListenNotBeforeUs = 0;
+    fLLWActiveUntilUs = 0;
+    fRTHomeListens = 0;
     fHomeListens = 0;
     fListenNextHome = false;
     fListenDwellTU = kListenDwellTU;

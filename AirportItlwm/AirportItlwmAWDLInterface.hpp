@@ -251,6 +251,13 @@ private:
     uint64_t fListenParked;
     uint64_t fHomeListenNotBeforeUs; // next infra-channel AWDL listen not before (host us)
     uint64_t fHomeListens;
+    uint64_t fLLWActiveUntilUs;      // llw0 traffic seen recently (host us): realtime listen policy
+    uint64_t fRTHomeListens;
+    // Peer traffic as airportd reports it, or 1 while llw0 carried traffic in the last 2 s
+    // (airportd never sets it for Continuity Camera).
+    uint32_t peerTrafficEff();
+    bool llwRealtime();
+    uint32_t homeListenMaxTU();
     bool fListenNextHome;           // the scheduled own listen is on the infra channel
     uint32_t fListenDwellTU;        // AWDLListenDwellTU
     uint32_t fListenEveryNth;       // AWDLListenEveryNth: 1 = every eligible slot

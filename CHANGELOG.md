@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.77] — 2026-11-21
+
+### Changed
+- Continuity Camera frame rate: while `llw0` carries traffic (frames either way in the last 2 s), AWDL listens on the infra channel use a realtime policy. Continuity Camera frames arrive only during these listens, which were capped at 64 TU with a 3x cooldown (about 25% duty), because airportd never sets peer traffic for Continuity Camera. The cooldown is now `debug.itlwm.awdl_rt_cool` x the dwell (default 1; 0 = back to back, max 8), and the listen can last up to `debug.itlwm.awdl_rt_dwell` TU (default 64, range 16–512). Both apply live. Off-channel listens are no longer held for infra while llw0 is active. New counter `AWDLListenHomeRT`.
+
 ## [2.7.76] — 2026-11-21
 
 ### Fixed
