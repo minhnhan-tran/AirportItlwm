@@ -79,8 +79,8 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 - **Continuity Camera works wirelessly (experimental, needs the `-itlllw` boot-arg).**
   macOS carries the camera's video and audio over a low-latency Skywalk interface,
   `llw0`, tied to AWDL. With `-itlllw` the driver creates `llw0` and bridges it to
-  AWDL in both directions, and the iPhone appears as a camera in Photo Booth and
-  FaceTime (tested with an iPhone 16 Pro while also joined to a home 5 GHz network).
+  AWDL in both directions, and the iPhone appears as a camera and streams live video
+  (tested in Photo Booth with an iPhone 16 Pro, while joined to a home 5 GHz network).
   Over USB it works without the boot-arg. The wireless frame rate is still low
   (about 4–6 fps at about 1 Mbit/s): the stream shares the radio with the home
   network, and lost packets make the iPhone resend full frames and cut its bitrate.
