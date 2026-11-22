@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.80] — 2026-11-22
+
+### Fixed
+- Continuity Camera packet loss: the iPhone splits some AWDL video frames into 802.11 fragments. The AWDL RX path did not reassemble them. The first fragment was dropped (an MSDU with no SNAP/subframe header after the cut) and later fragments were rejected as `AWDLDataRxBadSnap` (about 130 per 30 s of streaming: QoS TID 7, unprotected, high-entropy payload with no LLC header). Every lost fragment lost a video packet, so frames failed to reassemble and the iPhone fell back to keyframes at a lower bitrate. Unicast AWDL data is now defragmented (one slot keyed by TA/TID/seq, in-order fragments only, 100 ms timeout, 8 KB cap). New counters `AWDLDataRxFrag`, `AWDLDataRxDefrag`, `AWDLDataRxFragDrop`, `AWDLDataRxFragDup`.
+- iwx AWDL unicast RX dedup ignored the fragment number, so a retried fragment N+1 that followed fragment N with the same seq could be dropped as a duplicate. It now matches on seq and fragment number.
+
+### Changed
+- `llw0` RX: `kIOReturnOffline` enqueue results are counted separately (`LLWRxOffline`, `LLWRxOfflineBursts`, `LLWRxOfflineLastIn`) instead of in `LLWRxEnqueueFail`. They come in short bursts (about 65–70 frames), most likely while IOSkywalkFamily attaches the nexus at session start; this boot had 0 in 96,000 frames.
+- README: Continuity Camera now documents wireless support through `llw0` (`-itlllw`), its tunables and the current frame-rate limit.
+
 ## [2.7.79] — 2026-11-22
 
 ### Fixed

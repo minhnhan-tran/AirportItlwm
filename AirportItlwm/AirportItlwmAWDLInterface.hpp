@@ -374,6 +374,19 @@ public:
     uint64_t fDataRx;
     uint64_t fDataRxBad;
     uint64_t fDataRxAmsdu;
+    // 802.11 defragmentation of AWDL unicast data (the iPhone fragments Continuity Camera
+    // video MPDUs). One reassembly slot: RX runs in a single context and fragments of one
+    // MSDU arrive back to back.
+    mbuf_t   fFragM;
+    uint8_t  fFragTA[6];
+    uint16_t fFragSeq;
+    uint8_t  fFragTid;
+    uint8_t  fFragNext;
+    uint64_t fFragStartUs;
+    uint64_t fDataRxFrag;
+    uint64_t fDataRxDefrag;
+    uint64_t fDataRxFragDrop;
+    uint64_t fDataRxFragDup;
     uint64_t fDataRxNoBuf;
     uint32_t fDataRxLastLen;
     uint16_t fDataRxLastType;
@@ -571,6 +584,10 @@ private:
     uint64_t fRxNotReady;
     uint64_t fRxGateBusy;
     uint64_t fRxEnqFail;
+    uint64_t fRxOffline;         // enqueue returned kIOReturnOffline (queue disabled by the family)
+    uint64_t fRxOfflineBursts;   // runs of consecutive offline results
+    uint64_t fRxOfflineLastIn;   // fRxIn when the last burst started
+    bool     fRxOfflineRun;
     IOReturn fRxLastErr;
 public:
     const char *fLastErr; // last failing setup step, surfaced via the AWDL interface's LLWStatus property

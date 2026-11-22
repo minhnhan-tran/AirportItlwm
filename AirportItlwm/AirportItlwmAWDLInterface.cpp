@@ -142,6 +142,103 @@ static bool awdlAmsduValid(mbuf_t m, size_t hdr, unsigned *nsub)
     return n > 0 && (off >= total || total - off < 14);
 }
 
+static mbuf_t
+awdlDefrag(mbuf_t m, AirportItlwmAWDLInterface *awdl)
+{
+    // Returns the frame to process (m itself, or the reassembled MSDU), or nullptr when the
+    // fragment was consumed (held or dropped). Called after the first 64 bytes were pulled up.
+    const struct ieee80211_frame *wh = (const struct ieee80211_frame *)mbuf_data(m);
+    size_t len = mbuf_len(m);
+    if (len < sizeof(*wh) || (wh->i_addr1[0] & 1))
+        return m;
+    uint16_t sc = le16toh(*(const uint16_t *)wh->i_seq);
+    uint8_t frag = sc & IEEE80211_SEQ_FRAG_MASK;
+    bool more = (wh->i_fc[1] & IEEE80211_FC1_MORE_FRAG) != 0;
+    if (frag == 0 && !more)
+        return m;
+    size_t hdr = sizeof(*wh);
+    uint8_t tid = 0;
+    if (ieee80211_has_qos(wh)) {
+        if (len < hdr + 2) {
+            awdl->fDataRxFragDrop++;
+            mbuf_freem(m);
+            return nullptr;
+        }
+        tid = ((const uint8_t *)wh)[hdr] & IEEE80211_QOS_TID;
+        hdr += 2;
+    }
+    uint16_t seq = sc >> IEEE80211_SEQ_SEQ_SHIFT;
+    uint64_t now = hostUs();
+    awdl->fDataRxFrag++;
+    if (awdl->fFragM && now - awdl->fFragStartUs > 100000) {   // stale partial MSDU
+        mbuf_freem(awdl->fFragM);
+        awdl->fFragM = nullptr;
+        awdl->fDataRxFragDrop++;
+    }
+    if (frag == 0) {
+        if (awdl->fFragM) {
+            mbuf_freem(awdl->fFragM);
+            awdl->fDataRxFragDrop++;
+        }
+        awdl->fFragM = m;
+        memcpy(awdl->fFragTA, wh->i_addr2, 6);
+        awdl->fFragSeq = seq;
+        awdl->fFragTid = tid;
+        awdl->fFragNext = 1;
+        awdl->fFragStartUs = now;
+        return nullptr;
+    }
+    bool match = awdl->fFragM && awdl->fFragSeq == seq && awdl->fFragTid == tid &&
+        memcmp(awdl->fFragTA, wh->i_addr2, 6) == 0;
+    if (match && frag + 1 == awdl->fFragNext) {      // retransmission of a fragment we have
+        awdl->fDataRxFragDup++;
+        mbuf_freem(m);
+        return nullptr;
+    }
+    size_t flen = mbuf_pkthdr_len(m);
+    size_t have = awdl->fFragM ? mbuf_pkthdr_len(awdl->fFragM) : 0;
+    if (!match || frag != awdl->fFragNext || flen < hdr || have + (flen - hdr) > 8192) {
+        awdl->fDataRxFragDrop++;
+        mbuf_freem(m);
+        if (match) {    // a fragment is missing: the MSDU cannot be completed
+            mbuf_freem(awdl->fFragM);
+            awdl->fFragM = nullptr;
+        }
+        return nullptr;
+    }
+    // Append the fragment body (mbuf_copyback grows the chain and its packet length).
+    uint8_t buf[256];
+    size_t off = hdr, dst = have;
+    errno_t err = 0;
+    while (off < flen && !err) {
+        size_t n = flen - off < sizeof(buf) ? flen - off : sizeof(buf);
+        err = mbuf_copydata(m, off, n, buf);
+        if (!err)
+            err = mbuf_copyback(awdl->fFragM, dst, n, buf, MBUF_DONTWAIT);
+        off += n;
+        dst += n;
+    }
+    mbuf_freem(m);
+    if (err || mbuf_pkthdr_len(awdl->fFragM) != dst) {
+        mbuf_freem(awdl->fFragM);
+        awdl->fFragM = nullptr;
+        awdl->fDataRxFragDrop++;
+        return nullptr;
+    }
+    if (more) {
+        awdl->fFragNext++;
+        return nullptr;
+    }
+    mbuf_t full = awdl->fFragM;
+    awdl->fFragM = nullptr;
+    // Clear the fragment bits so the frame looks like the unfragmented MSDU.
+    struct ieee80211_frame *fh = (struct ieee80211_frame *)mbuf_data(full);
+    fh->i_fc[1] &= ~IEEE80211_FC1_MORE_FRAG;
+    fh->i_seq[0] &= ~IEEE80211_SEQ_FRAG_MASK;
+    awdl->fDataRxDefrag++;
+    return full;
+}
+
 int AirportItlwmAWDLEthernetInterface::
 inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
 {
@@ -153,6 +250,9 @@ inputAWDLData(mbuf_t m, AirportItlwmAWDLInterface *awdl)
         awdl->fDataRxBadPullup++;
         return 1;   // mbuf_pullup freed it
     }
+    m = awdlDefrag(m, awdl);
+    if (!m)
+        return 1;
     const uint8_t *p = (const uint8_t *)mbuf_data(m);
     size_t len = mbuf_len(m);
     const struct ieee80211_frame *wh = (const struct ieee80211_frame *)p;
@@ -2186,6 +2286,10 @@ publishDataState()
     setProperty("AWDLDataRx", fDataRx, 64);
     setProperty("AWDLDataRxBad", fDataRxBad, 64);
     setProperty("AWDLDataRxAmsdu", fDataRxAmsdu, 64);
+    setProperty("AWDLDataRxFrag", fDataRxFrag, 64);
+    setProperty("AWDLDataRxDefrag", fDataRxDefrag, 64);
+    setProperty("AWDLDataRxFragDrop", fDataRxFragDrop, 64);
+    setProperty("AWDLDataRxFragDup", fDataRxFragDup, 64);
     setProperty("AWDLDataRxNoBuf", fDataRxNoBuf, 64);
     setProperty("AWDLDataRxLastLen", fDataRxLastLen, 32);
     setProperty("AWDLDataRxLastType", fDataRxLastType, 32);
@@ -2661,6 +2765,7 @@ withController(AirportItlwm *controller, ether_addr *mac)
         OSSafeReleaseNULL(ifp->fAWTimer);
     }
     ifp->fPeerCacheLock = IOSimpleLockAlloc();
+    ifp->fFragM = nullptr;
     ifp->fPeerCacheTimer = IOTimerEventSource::timerEventSource(kIOTimerEventSourceOptionsPriorityHigh,
                                                                 ifp, &AirportItlwmAWDLInterface::peerCacheTimerFired);
     if (!ifp->fPeerCacheLock || !ifp->fPeerCacheTimer || !controller->getWorkLoop() ||
@@ -2814,6 +2919,10 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fDataRx = 0;
     fDataRxBad = 0;
     fDataRxAmsdu = 0;
+    fDataRxFrag = 0;
+    fDataRxDefrag = 0;
+    fDataRxFragDrop = 0;
+    fDataRxFragDup = 0;
     fDataRxNoBuf = 0;
     fDataRxLastLen = 0;
     fDataRxLastType = 0;
@@ -2862,6 +2971,10 @@ free()
     AWDL_LOG("calls %llu", fCallCount);
     teardownAW();
     destroyLLWInterface();
+    if (fFragM) {
+        mbuf_freem(fFragM);
+        fFragM = nullptr;
+    }
     if (fLLWCall) {
         thread_call_free(fLLWCall); // may report busy if the worker is still unwinding; harmless
         fLLWCall = nullptr;
@@ -3926,6 +4039,9 @@ publishRx()
     setProperty("LLWRxNotReady", fRxNotReady, 64);
     setProperty("LLWRxGateBusy", fRxGateBusy, 64);
     setProperty("LLWRxEnqueueFail", fRxEnqFail, 64);
+    setProperty("LLWRxOffline", fRxOffline, 64);
+    setProperty("LLWRxOfflineBursts", fRxOfflineBursts, 64);
+    setProperty("LLWRxOfflineLastIn", fRxOfflineLastIn, 64);
     setProperty("LLWRxLastError", (unsigned long long)(uint32_t)fRxLastErr, 32);
 }
 
@@ -4032,8 +4148,22 @@ inputSubframe(mbuf_t m, size_t off, const uint8_t *sh, size_t sublen)
     case kLLWRxSetupFail: cnt = &fRxSetupFail; break;
     case kLLWRxGateBusy: cnt = &fRxGateBusy; break;
     case kLLWRxPrepFail: cnt = &fRxPrepFail; break;
-    default: cnt = &fRxEnqFail; break;
+    default:
+        if (err == kIOReturnOffline) {
+            // Nexus not attached or queue disabled by IOSkywalkFamily; seen in ~0.6 s bursts.
+            cnt = &fRxOffline;
+            if (!fRxOfflineRun) {
+                fRxOfflineRun = true;
+                fRxOfflineBursts++;
+                fRxOfflineLastIn = fRxIn;
+            }
+        } else {
+            cnt = &fRxEnqFail;
+        }
+        break;
     }
+    if (cnt != &fRxOffline)
+        fRxOfflineRun = false;
     if (cnt)
         (*cnt)++;
     if (err != kIOReturnSuccess)

@@ -76,17 +76,21 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   - The `AWDLPairStats` property on the AWDL interface in `ioreg` shows how the
     Mac's and the peer's channel slots overlap, and `dps=<calls>/<result>` for the
     data-count reports.
-- **Continuity Camera works over USB only.** With the iPhone connected by cable it
-  appears as a camera and works (tested in Photo Booth). Wirelessly it does not
-  appear in FaceTime or Photo Booth: the Mac's Continuity Camera agent reads the
-  iPhone as `nearby:0` (the same iPhone reads `nearby:1` on an Apple Silicon Mac),
-  and the agent's logic only offers a wireless camera once that flag is set.
-  `nearbyd` on this setup logs "Ranging is not supported on this platform" and
-  interrupts its sessions with "BluetoothNotAvailable", which may implicate the
-  Bluetooth stack rather than the Wi-Fi driver; this is unconfirmed. There is no
-  preference or boot-arg to bypass the check (`CMCaptureDebug` only controls debug
-  logging). The wireless video path over AWDL is therefore untested, and the cause
-  is undetermined.
+- **Continuity Camera works wirelessly (experimental, needs the `-itlllw` boot-arg).**
+  macOS carries the camera's video and audio over a low-latency Skywalk interface,
+  `llw0`, tied to AWDL. With `-itlllw` the driver creates `llw0` and bridges it to
+  AWDL in both directions, and the iPhone appears as a camera in Photo Booth and
+  FaceTime (tested with an iPhone 16 Pro while also joined to a home 5 GHz network).
+  Over USB it works without the boot-arg. The wireless frame rate is still low
+  (about 4–6 fps at about 1 Mbit/s): the stream shares the radio with the home
+  network, and lost packets make the iPhone resend full frames and cut its bitrate.
+  While `llw0` carries traffic, AWDL listens on the home channel use
+  `debug.itlwm.awdl_rt_cool` [1] (pause after each listen, as a multiple of its
+  length) and `debug.itlwm.awdl_rt_dwell` [64] (maximum listen, TU). Lower values
+  give the camera more airtime but can drop the home network (cool 0 / dwell 128
+  did). `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic to the
+  iPhone. `ioreg` counters: `LLW*` on `llw0`, `AWDLDataRx*` and `AWDLListenHomeRT`
+  on the AWDL interface.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".

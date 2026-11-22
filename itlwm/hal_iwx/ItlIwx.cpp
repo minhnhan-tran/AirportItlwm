@@ -6370,11 +6370,14 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
             }
             /* Subframe 0 for a plain MPDU; later A-MSDU subframes share the seq. */
             uint8_t sub = desc->amsdu_info & IWX_RX_MPDU_AMSDU_SUBFRAME_IDX_MASK;
-            uint16_t seq = le16toh(*(const uint16_t *)dh->i_seq) >>
-                IEEE80211_SEQ_SEQ_SHIFT;
+            uint16_t sc16 = le16toh(*(const uint16_t *)dh->i_seq);
+            uint16_t seq = sc16 >> IEEE80211_SEQ_SEQ_SHIFT;
+            /* Fragments of one MSDU share the seq; only the same fragment number is a retry. */
+            uint8_t frag = sc16 & IEEE80211_SEQ_FRAG_MASK;
             if ((dh->i_fc[1] & IEEE80211_FC1_RETRY) &&
                 sc->sc_awdl_rx_lastseq_valid[tid] &&
                 sc->sc_awdl_rx_lastseq[tid] == seq &&
+                sc->sc_awdl_rx_lastfrag[tid] == frag &&
                 sc->sc_awdl_rx_lastsub[tid] >= sub) {
                 ic->ic_awdl_fw_uc_drop_dup++;
                 mbuf_freem(m);
@@ -6382,6 +6385,7 @@ iwx_rx_mpdu_mq(struct iwx_softc *sc, mbuf_t m, void *pktdata,
             }
             sc->sc_awdl_rx_lastseq[tid] = seq;
             sc->sc_awdl_rx_lastsub[tid] = sub;
+            sc->sc_awdl_rx_lastfrag[tid] = frag;
             sc->sc_awdl_rx_lastseq_valid[tid] = 1;
         }
     }
