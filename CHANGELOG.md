@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.82] — 2026-11-22
+
+### Fixed
+- Continuity Camera packet gaps: the aligned AWDL listen scheduler followed the peer's schedule only for non-home channels, so the iPhone's home-channel slots were skipped whenever our own (low-power) sequence had 0 there. In the 2.7.81 test the iPhone advertised ` 36 36 149 0 0 0 0 36 6 36 149 36 0 0 0 36` (6/16 slots on home channel 36) and we advertised ` 36 0 149 0 0 0 0 0 6 0 149 0 0 0 0 0` (1/16). That gave about 2.8 home listens/s of 16 TU (about 4.5% duty) and 20–90 packet RTP gaps every 100–300 ms (macOS `DetectMissingPackets`). In realtime mode (llw0 active) the scheduler now also listens in the peer's home-channel slots, and sizes each home listen to the whole run of slots where either schedule is on the home channel (still capped by `awdl_rt_dwell` and its cooldown). New counter `AWDLListenPeerHome`.
+
 ## [2.7.81] — 2026-11-22
 
 ### Fixed

@@ -253,6 +253,7 @@ private:
     uint64_t fHomeListens;
     uint64_t fLLWActiveUntilUs;      // llw0 traffic seen recently (host us): realtime listen policy
     uint64_t fRTHomeListens;
+    uint64_t fListenPeerHome;        // realtime listens scheduled from the peer's home-channel slots
     // Peer traffic as airportd reports it, or 1 while llw0 carried traffic in the last 2 s
     // (airportd never sets it for Continuity Camera).
     uint32_t peerTrafficEff();

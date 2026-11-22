@@ -1534,6 +1534,11 @@ scheduleOwnListen(uint64_t afterUs)
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
         fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
     bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data);
+    // Realtime (llw0) stream: the iPhone sends in ITS home-channel slots, which our own low-power
+    // sequence mostly leaves at 0 (2.7.81: peer 6/16 slots on 36, ours 1/16 -> ~4.5% home listen
+    // duty, 20-90 packet gaps every few hundred ms). Follow the peer's home slots as well.
+    bool rtPeerHome = homeOk && llwRealtime() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
+        fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
     for (int i = 0; i < 32; i++, k++) {
         uint16_t seq = (uint16_t)(fRefSeq + k * pm);
         uint8_t chan = ownChannelAt(seq);
@@ -1545,17 +1550,34 @@ scheduleOwnListen(uint64_t afterUs)
                 fromPeer = true;
             }
         }
+        bool peerHome = false;
+        if (!chan && rtPeerHome &&
+            peerChannelAt((uint64_t)(fRefUs + k * slot + slot / 2)) == home) {
+            chan = (uint8_t)home;
+            peerHome = true;
+        }
         bool atHome = chan && chan == home;
         if (!chan || (atHome && (!homeOk ||
             (uint64_t)(fRefUs + k * slot) < fHomeListenNotBeforeUs)))
             continue;
         unsigned run = 1;
-        if (!fromPeer) {
+        if (atHome && rtPeerHome) {
+            // Cover the whole run of slots where either schedule is on the home channel.
+            while (run < 16 &&
+                   (ownChannelAt((uint16_t)(seq + run * pm)) == chan ||
+                    peerChannelAt((uint64_t)(fRefUs + (k + run) * slot + slot / 2)) == home))
+                run++;
+        } else if (!fromPeer) {
             while (run < 16 && ownChannelAt((uint16_t)(seq + run * pm)) == chan)
                 run++;
         }
         if (fromPeer)
             fListenPeerSlots++;
+        if (peerHome) {
+            fListenPeerHome++;
+            if ((fListenPeerHome & 0x3f) == 1)
+                setProperty("AWDLListenPeerHome", fListenPeerHome, 64);
+        }
         uint32_t dwell = (uint32_t)((run * slot + lead) / 1024);
         // In realtime mode the home-channel listen may run past the normal dwell limit.
         if (dwell > fListenDwellTU && !(atHome && llwRealtime()))
@@ -2855,6 +2877,7 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fListenParked = 0;
     fHomeListenNotBeforeUs = 0;
     fLLWActiveUntilUs = 0;
+    fListenPeerHome = 0;
     fRTHomeListens = 0;
     fHomeListens = 0;
     fListenNextHome = false;
