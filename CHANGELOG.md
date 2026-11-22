@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.87] — 2026-11-22
+
+### Added
+- `debug.itlwm.awdl_home_tx` [1], a runtime switch to test the home Wi-Fi slowdown during wireless Continuity Camera. In 2.7.85/2.7.86 tests with `awdl_share_phy` 1, gateway RTT on en1 had a median of 350–515 ms, p90 1.5–2.7 s and max 2.3–3.8 s while streaming. With the camera off it was 3 ms (p90 69 ms). AWDL data frames sent on the infra channel outside a listen (37–46/s) go on the station's own TX queue (`first_data_qid`). The ones the iPhone misses are retried to the long limit (TX status 0x83), and station frames queue behind them. Setting `debug.itlwm.llw_tx` to 0 roughly halved the RTT (median 177 ms, p90 579 ms) but broke the camera stream. With `awdl_home_tx` 0, those data frames wait for the next AWDL listen, which uses the P2P queue. Management frames are not affected. The default stays 1 until a live A/B confirms it.
+
 ## [2.7.86] — 2026-11-22
 
 ### Changed

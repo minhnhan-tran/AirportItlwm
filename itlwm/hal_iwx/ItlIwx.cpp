@@ -162,6 +162,12 @@ int itlwm_awdl_rt_dwell = 64;
 // 5-9 fps, home Wi-Fi stayed up. The 2.7.84 link-down came from back-to-back listens (cool 0).
 extern int itlwm_awdl_share_phy;
 int itlwm_awdl_share_phy = 1;
+// AWDL data frames sent on the infra channel outside a listen go on the station's own TX queue
+// (first_data_qid). Frames the peer misses are retried to the long limit (status 0x83) and hold
+// up station traffic behind them on that queue. 0 keeps such data frames for the next listen
+// (management frames are not affected).
+extern int itlwm_awdl_home_tx;
+int itlwm_awdl_home_tx = 1;
 
 // P2P (AWDL listen) firmware contexts, beside the station's MAC 0 / PHY 0.
 #define IWX_P2P_MAC_ID   1
@@ -230,6 +236,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, llw_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_l
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_cool, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_cool, 0, "llw0 active: infra-channel AWDL listen cooldown, x dwell (0 back to back, max 8)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_dwell, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_dwell, 0, "llw0 active: max infra-channel AWDL listen, TU (16-512)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_share_phy, 0, "AWDL listens on the infra channel share the station binding: 1 on (default), 0 separate PHY");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "AWDL data on the infra channel outside listens: 1 send on the station queue, 0 hold for the next listen");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
@@ -379,6 +386,7 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_rt_cool);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_share_phy);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_tx);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
@@ -9954,10 +9962,12 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
     }
     int qid = -1;
     bool onHome = false;
+    bool holdData = !itlwm_awdl_home_tx && len >= 2 &&
+        (frame[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA;
     if (iwx_p2p_listen_enabled() && sc->sc_p2p_queue &&
         sc->sc_aux_roc_running && ic->ic_awdl_listen_chan == chan) {
         qid = sc->sc_aux_roc_qid;
-    } else if (!sc->sc_aux_roc_running &&
+    } else if (!sc->sc_aux_roc_running && !holdData &&
                ic->ic_state == IEEE80211_S_RUN &&
                ic->ic_bss->ni_chan &&
                ic->ic_bss->ni_chan != IEEE80211_CHAN_ANYC &&
@@ -15749,6 +15759,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_rt_cool);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_share_phy);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_tx);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);
