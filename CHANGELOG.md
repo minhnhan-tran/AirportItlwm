@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.79] — 2026-11-22
+
+### Fixed
+- Home Wi-Fi dropped during Continuity Camera with the 2.7.78 defaults (`awdl_rt_cool` 0, `awdl_rt_dwell` 128). Back-to-back home-channel AWDL listens starved the station: NET_MANAGER LINK_DOWN 25 s into the stream, then the camera session ended. Defaults are back to cool 1 / dwell 64; the 2.7.78 fix that applies the realtime policy even with airportd peer traffic stays. 2.7.78 A/B (30 s each): cool 1 / dwell 64 gave 1.15 Mbit/s; cool 3 gave 1.22; cool 2 / dwell 64 and cool 1 / dwell 96 were lower (cool 2 also had one link-down), and none fixed the frame rate. Listen duty is not the limit.
+
 ## [2.7.78] — 2026-11-21
 
 ### Fixed
