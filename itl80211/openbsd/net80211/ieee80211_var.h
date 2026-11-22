@@ -540,6 +540,7 @@ struct ieee80211com {
     void            (*ic_awdl_sync_notify)(struct ieee80211com *);
     uint32_t        ic_awdl_tx_sent;     /* queued to the firmware */
     uint32_t        ic_awdl_tx_home;     /* queued on associated home channel */
+    uint32_t        ic_awdl_tx_home_defer;   /* unicast AWDL data deferred: station queue at awdl_home_qmax */
     uint32_t        ic_awdl_tx_busy;     /* refused: not dwelling on chan */
     uint8_t         ic_awdl_listen_active;
     uint8_t         ic_awdl_listen_shared;   /* last listen ran on the station's binding (no channel switch) */

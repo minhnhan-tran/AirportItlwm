@@ -2475,6 +2475,7 @@ publishTxState()
         return;
     setProperty("AWDLTxFwSent", ic->ic_awdl_tx_sent, 32);
     setProperty("AWDLTxFwHome", ic->ic_awdl_tx_home, 32);
+    setProperty("AWDLTxFwHomeDefer", ic->ic_awdl_tx_home_defer, 32);
     setProperty("AWDLTxFwBusy", ic->ic_awdl_tx_busy, 32);
     setProperty("AWDLTxFwErr", ic->ic_awdl_tx_err, 32);
     setProperty("AWDLTxFwOk", ic->ic_awdl_tx_ok, 32);

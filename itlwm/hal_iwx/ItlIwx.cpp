@@ -168,6 +168,13 @@ int itlwm_awdl_share_phy = 1;
 // (management frames are not affected).
 extern int itlwm_awdl_home_tx;
 int itlwm_awdl_home_tx = 1;
+// Most frames that unicast AWDL data may leave on the station's TX queue (first_data_qid, shared
+// with the station's management frames) before more wait in fDataQ. 2.7.87 test with
+// awdl_share_phy 0: the queue sat at hi_mark (896 of 1024) for the whole stream, draining at
+// ~13 frames/s (retries to the iPhone), and still held 707 frames 15 s after the camera stopped.
+// 0 = no limit.
+extern int itlwm_awdl_home_qmax;
+int itlwm_awdl_home_qmax = 8;
 
 // P2P (AWDL listen) firmware contexts, beside the station's MAC 0 / PHY 0.
 #define IWX_P2P_MAC_ID   1
@@ -237,6 +244,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_cool, CTLFLAG_RW | CTLFLAG_LOCKED, &i
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_dwell, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_dwell, 0, "llw0 active: max infra-channel AWDL listen, TU (16-512)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_share_phy, 0, "AWDL listens on the infra channel share the station binding: 1 on (default), 0 separate PHY");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "AWDL data on the infra channel outside listens: 1 send on the station queue, 0 hold for the next listen");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_qmax, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_qmax, 0, "Max frames on the station TX queue before unicast AWDL data waits (0 = no limit)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
@@ -387,6 +395,7 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_share_phy);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
@@ -9964,6 +9973,9 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
     bool onHome = false;
     bool holdData = !itlwm_awdl_home_tx && len >= 2 &&
         (frame[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA;
+    /* Unicast data is ACKed and retried; broadcast action/data frames are not. */
+    bool ucData = len >= 10 &&
+        (frame[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA && !(frame[4] & 1);
     if (iwx_p2p_listen_enabled() && sc->sc_p2p_queue &&
         sc->sc_aux_roc_running && ic->ic_awdl_listen_chan == chan) {
         qid = sc->sc_aux_roc_qid;
@@ -9972,7 +9984,14 @@ iwx_awdl_tx(struct ieee80211com *ic, uint8_t chan, const uint8_t *frame, size_t 
                ic->ic_bss->ni_chan &&
                ic->ic_bss->ni_chan != IEEE80211_CHAN_ANYC &&
                ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan) == chan &&
-               sc->first_data_qid > 0) {
+               sc->first_data_qid > 0 && sc->first_data_qid < (int)nitems(sc->txq)) {
+        /* Keep the station's queue short: a full one holds its management frames for seconds. */
+        if (ucData && itlwm_awdl_home_qmax > 0 &&
+            sc->txq[sc->first_data_qid].queued >= itlwm_awdl_home_qmax) {
+            ic->ic_awdl_tx_busy++;
+            ic->ic_awdl_tx_home_defer++;
+            return EAGAIN;
+        }
         qid = sc->first_data_qid;
         onHome = true;
     } else {
@@ -15760,6 +15779,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_share_phy);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);

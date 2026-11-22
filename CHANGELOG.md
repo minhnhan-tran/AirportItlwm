@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.88] — 2026-11-22
+
+### Fixed
+- Unicast AWDL data could fill the station's own TX queue, which it shares with the station's management frames. In the 2.7.87 test with `awdl_share_phy` 0 and Continuity Camera streaming, that queue (txq 1) stayed at its high-water mark (896 of 1024 frames) for the whole stream. It drained at about 13 frames/s because of retries to the iPhone, and 36 AWDL submissions/s were rejected with ENOBUFS. The queue still held 707 frames 15 s after the camera closed. Unicast AWDL data now waits in `fDataQ` once that queue holds `debug.itlwm.awdl_home_qmax` [8] frames (0 = no limit). Broadcast AWDL action frames are not limited. New counter `AWDLTxFwHomeDefer`.
+
+### Notes
+- The same test with `awdl_share_phy` 1 (default) kept that queue at 1–3 frames, but gateway RTT on en1 still had a median of 464 ms (p90 1451 ms, max 2293 ms) at 38.7 fps. It fell to a median of 8 ms (p90 135 ms) 5–25 s after the camera stopped, so this fix does not address that latency. en1 also reassociated 4 times (link inactive, then active again 1–3 s later) around camera start and stop. `awdl_home_tx` 0 is not usable: it stalled the stream and dropped en1.
+
 ## [2.7.87] — 2026-11-22
 
 ### Added
