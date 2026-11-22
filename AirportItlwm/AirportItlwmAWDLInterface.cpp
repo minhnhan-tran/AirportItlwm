@@ -231,6 +231,11 @@ awdlDefrag(mbuf_t m, AirportItlwmAWDLInterface *awdl)
     }
     mbuf_t full = awdl->fFragM;
     awdl->fFragM = nullptr;
+    size_t pull = mbuf_pkthdr_len(full) < 64 ? mbuf_pkthdr_len(full) : 64;
+    if (mbuf_pullup(&full, pull) != 0 || !full) {
+        awdl->fDataRxFragDrop++;
+        return nullptr;
+    }
     // Clear the fragment bits so the frame looks like the unfragmented MSDU.
     struct ieee80211_frame *fh = (struct ieee80211_frame *)mbuf_data(full);
     fh->i_fc[1] &= ~IEEE80211_FC1_MORE_FRAG;

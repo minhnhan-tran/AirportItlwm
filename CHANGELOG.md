@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.81] — 2026-11-22
+
+### Fixed
+- `awdlDefrag`: pull up up to 64 contiguous bytes on the reassembled mbuf before returning it to `inputAWDLData`. When fragment 0 was shorter than 64 bytes and subsequent fragments were appended via `mbuf_copyback`, `mbuf_len(full)` remained at fragment 0's length instead of `mbuf_pkthdr_len(full)`, which could cause `inputAWDLData` to reject a valid reassembled frame as `AWDLDataRxBadShort`.
+
 ## [2.7.80] — 2026-11-22
 
 ### Fixed
