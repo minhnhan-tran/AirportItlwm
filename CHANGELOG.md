@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.85] — 2026-11-22
+
+### Fixed
+- Home Wi-Fi dropped during wireless Continuity Camera on 2.7.83–2.7.84. The firmware accepted the shared binding (318 shared listens, `AWDLListenShareFail` 0). But shared home-channel listens also ran back to back (cooldown forced to 0), and `en1` got a link-down indication 6 s after the first camera frame (involuntary leave, enhanced disassoc reason 11). With `debug.itlwm.awdl_share_phy=0` the same stream kept home Wi-Fi up (0% gateway ping loss) at the same ~1 Mbit/s. `awdl_share_phy` now defaults to 0. Shared listens no longer force cooldown 0; they use `debug.itlwm.awdl_rt_cool` like separate-PHY listens, so sharing and back-to-back listens can be tested separately.
+
 ## [2.7.84] — 2026-11-22
 
 ### Fixed

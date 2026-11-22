@@ -1347,9 +1347,6 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
             // frames are only received during these listens (about 25% duty with the 3x default).
             int c = itlwm_awdl_rt_cool;
             cool = d * (uint64_t)(c < 0 ? 0 : (c > 8 ? 8 : c));
-            // On the station's binding the listen costs the station no airtime: listen back to back.
-            if (ic->ic_awdl_listen_shared)
-                cool = 0;
             fRTHomeListens++;
             if ((fRTHomeListens & 0x3f) == 1) {
                 setProperty("AWDLListenHomeRT", fRTHomeListens, 64);

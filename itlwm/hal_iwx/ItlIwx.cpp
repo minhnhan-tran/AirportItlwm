@@ -158,9 +158,10 @@ extern int itlwm_awdl_rt_dwell;
 int itlwm_awdl_rt_dwell = 64;
 // AWDL listens on the infra channel put the P2P MAC into the station's binding (as iwlwifi's
 // iwl_mvm_roc does when a PHY context already sits on the ROC channel) instead of time-sharing
-// a second PHY on the same channel: no channel switch, so the station is not starved.
+// a second PHY on the same channel. Off by default: the firmware accepts it, but in the 2.7.84
+// test (with back-to-back listens) the station got a link-down 6 s into Continuity Camera.
 extern int itlwm_awdl_share_phy;
-int itlwm_awdl_share_phy = 1;
+int itlwm_awdl_share_phy = 0;
 
 // P2P (AWDL listen) firmware contexts, beside the station's MAC 0 / PHY 0.
 #define IWX_P2P_MAC_ID   1
@@ -228,7 +229,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED
 SYSCTL_INT(_debug_itlwm, OID_AUTO, llw_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_llw_tx, 0, "Send llw0 TX frames to the AWDL peer: 1 on, 0 drop");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_cool, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_cool, 0, "llw0 active: infra-channel AWDL listen cooldown, x dwell (0 back to back, max 8)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_dwell, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_dwell, 0, "llw0 active: max infra-channel AWDL listen, TU (16-512)");
-SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_share_phy, 0, "AWDL listens on the infra channel share the station binding: 1 on, 0 separate PHY");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_share_phy, 0, "AWDL listens on the infra channel share the station binding: 1 on (experimental), 0 separate PHY");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
