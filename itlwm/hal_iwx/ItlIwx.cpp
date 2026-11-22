@@ -10303,10 +10303,16 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
                 share = false;
             }
         } else if (!share && sc->sc_p2p_shared) {
-            stage = 11;
-            sc->sc_p2p_shared = 0;
-            if ((err = iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY)) != 0)
-                goto fail;
+            if ((sc->sc_flags & IWX_FLAG_BINDING_ACTIVE) && sphy != NULL) {
+                stage = 11;
+                sc->sc_p2p_shared = 0;
+                if ((err = iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY)) != 0) {
+                    sc->sc_p2p_shared = 1;
+                    goto fail;
+                }
+            } else {
+                sc->sc_p2p_shared = 0;
+            }
         }
         ic->ic_awdl_listen_shared = share ? 1 : 0;
         if (!share) {

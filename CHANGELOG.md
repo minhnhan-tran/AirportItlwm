@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.84] — 2026-11-22
+
+### Fixed
+- `iwx_p2p_setup`: when leaving a shared station binding (`!share && sc->sc_p2p_shared`), check that the station binding is active and `in->in_phyctxt` is non-null before issuing `BINDING_CONTEXT_CMD` MODIFY, and restore `sc->sc_p2p_shared = 1` if MODIFY fails so subsequent off-channel listens don't skip unsharing and hit repeated P2P binding errors.
+
 ## [2.7.83] — 2026-11-22
 
 ### Fixed
