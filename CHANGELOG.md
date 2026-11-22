@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.86] — 2026-11-22
+
+### Changed
+- `debug.itlwm.awdl_share_phy` now defaults to 1. In a 2.7.85 A/B, one Continuity Camera session was toggled live, with home Wi-Fi and AWDL both on channel 36 and `awdl_rt_cool` 1 / `awdl_rt_dwell` 64. With sharing on, llw0 received 1.8–1.9 Mbit/s (200–205 pkt/s) at 33–40 fps (VideoReceiver average 39–40, FrameCounter 33–37), with 44–55 missing RTP packets/s. With sharing off it received 0.7 Mbit/s (85 pkt/s) at 5–9 fps, with 78 missing/s. The two 60 s sharing runs made 576 shared listens, with 0 `AWDLListenShareFail` and no real link-down. Gateway ping lost 0–3.9% in both modes, but averaged 0.5–0.9 s while streaming (about 2 ms with the camera off). The 2.7.84 home Wi-Fi drop came from back-to-back listens (`awdl_rt_cool` 0), not from sharing.
+- README: Continuity Camera status now gives the shared-binding frame rate and the higher home Wi-Fi latency while streaming.
+
 ## [2.7.85] — 2026-11-22
 
 ### Fixed

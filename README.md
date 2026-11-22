@@ -80,17 +80,20 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   macOS carries the camera's video and audio over a low-latency Skywalk interface,
   `llw0`, tied to AWDL. With `-itlllw` the driver creates `llw0` and bridges it to
   AWDL in both directions, and the iPhone appears as a camera and streams live video
-  (tested in Photo Booth with an iPhone 16 Pro, while joined to a home 5 GHz network).
-  Over USB it works without the boot-arg. The wireless frame rate is still low
-  (about 4–6 fps at about 1 Mbit/s): the stream shares the radio with the home
-  network, and lost packets make the iPhone resend full frames and cut its bitrate.
-  While `llw0` carries traffic, AWDL listens on the home channel use
-  `debug.itlwm.awdl_rt_cool` [1] (pause after each listen, as a multiple of its
-  length) and `debug.itlwm.awdl_rt_dwell` [64] (maximum listen, TU). Lower values
-  give the camera more airtime but can drop the home network (cool 0 / dwell 128
-  did). `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic to the
-  iPhone. `ioreg` counters: `LLW*` on `llw0`, `AWDLDataRx*` and `AWDLListenHomeRT`
-  on the AWDL interface.
+  (tested in Photo Booth with an iPhone 16 Pro, while joined to a home 5 GHz network
+  on channel 36, the channel AWDL used). Over USB it works without the boot-arg.
+  With `debug.itlwm.awdl_share_phy` [1], AWDL listens on the home network's channel
+  join the station's firmware binding instead of time-sharing a second PHY: about
+  33–40 fps at about 1.9 Mbit/s, against 5–9 fps at under 1 Mbit/s with 0. Home
+  Wi-Fi stays connected, but its latency rises while the camera streams (gateway
+  ping averaged 0.5–0.9 s, against about 2 ms without the camera). While `llw0`
+  carries traffic, those listens use `debug.itlwm.awdl_rt_cool` [1] (pause after
+  each listen, as a multiple of its length) and `debug.itlwm.awdl_rt_dwell` [64]
+  (maximum listen, TU). Keep `awdl_rt_cool` above 0: back-to-back listens dropped
+  the home network. `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic
+  to the iPhone. `ioreg` counters: `LLW*` on `llw0`; `AWDLDataRx*`,
+  `AWDLListenHomeRT`, `AWDLListenShared` and `AWDLListenShareFail` on the AWDL
+  interface.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
