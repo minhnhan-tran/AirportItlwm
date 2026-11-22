@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.83] — 2026-11-22
+
+### Fixed
+- Continuity Camera frame rate on a shared infra/AWDL channel. While streaming, airportd puts both the Mac and the iPhone on a high-throughput AWDL sequence with 14 of 16 slots on the infra channel (36), but our AWDL listens ran the P2P MAC on its own PHY context. Even on the same channel, the firmware time-shared that PHY with the station's. So each listen cost the station airtime, needed a cooldown (≤50% duty, 20–90 packet gaps), and back-to-back listens (`awdl_rt_cool` 0) deauthenticated the station. When the listen channel is the station's channel, the P2P MAC is now added to the station's binding (`BINDING_CONTEXT_CMD` MODIFY with both MACs, like iwlwifi's ROC on an already-bound PHY), so a listen needs no channel switch. Realtime (llw0) home listens then run back to back. Off-channel listens still use the separate P2P PHY, and the P2P MAC moves between the two bindings as needed. If the MODIFY fails, the driver falls back to the separate PHY. `debug.itlwm.awdl_share_phy` [1] (0 = old behaviour). New counters `AWDLListenShared`, `AWDLListenShareFail`.
+
 ## [2.7.82] — 2026-11-22
 
 ### Fixed

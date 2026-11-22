@@ -542,6 +542,9 @@ struct ieee80211com {
     uint32_t        ic_awdl_tx_home;     /* queued on associated home channel */
     uint32_t        ic_awdl_tx_busy;     /* refused: not dwelling on chan */
     uint8_t         ic_awdl_listen_active;
+    uint8_t         ic_awdl_listen_shared;   /* last listen ran on the station's binding (no channel switch) */
+    uint32_t        ic_awdl_shared_listens;
+    uint32_t        ic_awdl_share_fail;
     uint8_t         ic_awdl_promisc;
     uint32_t        ic_awdl_rx_promisc_drop;
     uint32_t        ic_awdl_tx_err;      /* refused: ring full, no mbuf, DMA */

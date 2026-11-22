@@ -762,6 +762,7 @@ struct iwx_softc {
 	int sc_p2p_mac;
 	int sc_p2p_promisc;	/* IN_PROMISC currently set on the P2P MAC */
 	int sc_p2p_bound;
+	int sc_p2p_shared;	/* P2P MAC is in the station's binding (AWDL listen on the infra channel) */
 	int sc_p2p_sta;
 	int sc_p2p_queue;
 	uint32_t sc_p2p_addr_gen;	/* ic_awdl_addr_gen the P2P MAC was programmed with */
