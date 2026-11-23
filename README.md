@@ -79,26 +79,35 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 - **Continuity Camera works wirelessly (experimental, needs the `-itlllw` boot-arg).**
   macOS carries the camera's video and audio over a low-latency Skywalk interface,
   `llw0`, tied to AWDL. With `-itlllw` the driver creates `llw0` and bridges it to
-  AWDL in both directions, and the iPhone appears as a camera and streams live video
-  (tested in Photo Booth with an iPhone 16 Pro, while joined to a home 5 GHz network
-  on channel 36, the channel AWDL used). Over USB it works without the boot-arg.
-  With `debug.itlwm.awdl_share_phy` [1], AWDL listens on the home network's channel
-  join the station's firmware binding instead of time-sharing a second PHY: about
-  33–40 fps at about 1.9 Mbit/s, against 5–9 fps at under 1 Mbit/s with 0. Before
-  the P2P MAC changes binding or PHY, its TX queue is flushed
-  (`debug.itlwm.awdl_p2p_flush` [1]: flush when at least this many frames wait, 0
-  never). Up to 2.7.88 the firmware asserted (`NMI_INTERRUPT_LMAC_FATAL`) after such
-  moves while frames were still queued, dropping home Wi-Fi for about 20 s. In the
-  2.7.90 test (4.5 min at 36–38 fps) the firmware did not crash and the gateway ping
-  stayed at a 0.5 ms median with no loss (2.7.88: 450 ms median, 17% loss).
-  `debug.itlwm.awdl_home_qmax` [8] caps unicast AWDL frames on the station's own TX
-  queue (0 = no cap). While `llw0` carries traffic, those listens use `debug.itlwm.awdl_rt_cool` [1] (pause after
-  each listen, as a multiple of its length) and `debug.itlwm.awdl_rt_dwell` [64]
-  (maximum listen, TU). Keep `awdl_rt_cool` above 0: back-to-back listens dropped
-  the home network. `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic
-  to the iPhone. `ioreg` counters: `LLW*` on `llw0`; `AWDLDataRx*`,
-  `AWDLListenHomeRT`, `AWDLListenShared`, `AWDLListenShareFail`, `AWDLTxFwHomeDefer`,
-  `AWDLP2PFlushes` and `AWDLP2PFlushSkipped` on the AWDL interface.
+  AWDL in both directions, and the iPhone appears as a camera and streams live video.
+  Over USB it works without the boot-arg. Notes:
+  - Status as of 2.7.90 (MacPro7,1 SMBIOS, Intel AX210, macOS Tahoe 26.7.3, iPhone
+    16 Pro, Photo Booth, joined to a home 5 GHz network on channel 36, the channel
+    AWDL used): live video at 36–38 fps over a 4.5-minute session, with no firmware
+    crash, and home Wi-Fi stayed usable while streaming (gateway ping 0.5 ms median,
+    1 ms p99, no loss). On the same setup 2.7.88 dropped home Wi-Fi for about 20 s
+    each time the firmware crashed (`NMI_INTERRUPT_LMAC_FATAL`), and its gateway ping
+    had a 450 ms median with 17% loss.
+  - Not tested yet: other apps (FaceTime, Zoom), the iPhone microphone, Desk View,
+    sessions longer than a few minutes, and a home network on a different channel
+    than AWDL.
+  - The camera takes about 20 s to connect. A stream also stopped after 22 s when
+    Photo Booth lost focus or the display slept, so keep the app in front.
+  - How it works: with `debug.itlwm.awdl_share_phy` [1], AWDL listens on the home
+    network's channel join the station's firmware binding instead of time-sharing a
+    second PHY: about 33–40 fps at about 1.9 Mbit/s, against 5–9 fps at under
+    1 Mbit/s with 0. Before the P2P MAC changes binding or PHY, its TX queue is
+    flushed (`debug.itlwm.awdl_p2p_flush` [1]: flush when at least this many frames
+    wait, 0 never); up to 2.7.88 the firmware crashed after such moves while frames
+    were still queued. `debug.itlwm.awdl_home_qmax` [8] caps unicast AWDL frames on
+    the station's own TX queue (0 = no cap). While `llw0` carries traffic, those
+    listens use `debug.itlwm.awdl_rt_cool` [1] (pause after each listen, as a
+    multiple of its length) and `debug.itlwm.awdl_rt_dwell` [64] (maximum listen,
+    TU). Keep `awdl_rt_cool` above 0: back-to-back listens dropped the home network.
+    `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic to the iPhone.
+  - `ioreg` counters: `LLW*` on `llw0`; `AWDLDataRx*`, `AWDLListenHomeRT`,
+    `AWDLListenShared`, `AWDLListenShareFail`, `AWDLTxFwHomeDefer`, `AWDLP2PFlushes`
+    and `AWDLP2PFlushSkipped` on the AWDL interface.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
@@ -113,17 +122,18 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 
 ### Boot-args and kexts for all Continuity features
 
-AirDrop, Handoff, Universal Clipboard and iPhone Instant Hotspot need the Wi-Fi
-boot-args and a patched Bluetooth stack. Tested set (MacPro7,1 SMBIOS, Intel AX210,
-macOS Tahoe 26.7.3, iPhone 16 Pro), in OpenCore `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 > boot-args`:
+AirDrop, Handoff, Universal Clipboard, iPhone Instant Hotspot and wireless Continuity
+Camera need the Wi-Fi boot-args and a patched Bluetooth stack. Tested set (MacPro7,1
+SMBIOS, Intel AX210, macOS Tahoe 26.7.3, iPhone 16 Pro), in OpenCore `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 > boot-args`:
 
 ```
--lilubetaall -itlawdl -itlawdlp2p -itlawdlpromisc -itlawdllisten -itlawdltx -itlawdlaw -itlawdldata -ibtcompatbeta -btlfxadvsets
+-lilubetaall -itlawdl -itlawdlp2p -itlawdlpromisc -itlawdllisten -itlawdltx -itlawdlaw -itlawdldata -itlllw -ibtcompatbeta -btlfxadvsets
 ```
 
 | Boot-arg | Kext | Needed for |
 |---|---|---|
 | `-itlawdl` `-itlawdlp2p` `-itlawdlpromisc` `-itlawdllisten` `-itlawdltx` `-itlawdlaw` `-itlawdldata` | AirportItlwm | `awdl0`: AirDrop, Universal Clipboard, Handoff data (boot-args are cumulative: start from `-itlawdl`) |
+| `-itlllw` | AirportItlwm | `llw0`: wireless Continuity Camera (needs the AWDL boot-args above) |
 | `-lilubetaall` | Lilu | lets Lilu plugins load on macOS 26 |
 | `-ibtcompatbeta` | IntelBTPatcher | lets the patcher load on macOS 26 |
 | `-btlfxadvsets` | BlueToolFixup | BLE advertising and connection patches in `bluetoothd` (Handoff, Instant Hotspot) |

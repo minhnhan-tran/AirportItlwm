@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.91] — 2026-11-23
+
+### Changed
+- README: the Continuity Camera entry now gives the 2.7.90 status: 36–38 fps over 4.5 minutes, no firmware crash, home Wi-Fi usable while streaming, against 2.7.88's ~20 s home Wi-Fi drops at each firmware crash. It also lists what has not been tested yet, plus the ~20 s connect time and the need to keep Photo Booth in front. `-itlllw` was added to the "Boot-args and kexts for all Continuity features" list and table.
+
 ## [2.7.90] — 2026-11-23
 
 ### Added
