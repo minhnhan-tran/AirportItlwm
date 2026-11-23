@@ -774,6 +774,12 @@ struct iwx_softc {
 	uint8_t sc_awdl_rx_lastfrag[IWX_MAX_TID_COUNT + 1];	/* fragment number of the last MPDU, per TID */
 	uint8_t sc_awdl_rx_lastta[IEEE80211_ADDR_LEN];	/* transmitter the dedup state belongs to */
 	struct task sc_awdl_mac_task;
+	struct task sc_ftm_task;	/* sends the FTM range request (debug.itlwm.ftm / ranging=3) */
+	uint8_t sc_ftm_addr[IEEE80211_ADDR_LEN];
+	uint8_t sc_ftm_chan;
+	uint8_t sc_ftm_id;
+	uint32_t sc_ftm_reqs;
+	uint32_t sc_ftm_rsps;
 	uint32_t sc_p2p_wait;		/* listen attempts refused while waiting */
 	uint64_t sc_p2p_req_us;
 	uint64_t sc_p2p_start_us;

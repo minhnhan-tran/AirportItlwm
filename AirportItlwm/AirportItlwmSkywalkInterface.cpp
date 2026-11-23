@@ -26,11 +26,14 @@ OSDefineMetaClassAndStructors(AirportItlwmSkywalkInterface, IO80211InfraProtocol
 // Wi-Fi ranging (Apple Watch Auto Unlock) experiment, debug.itlwm.ranging:
 //   0 = unsupported, no logs (old behaviour); 1 = log only, still unsupported;
 //   2 = log and accept the ENABLE/START/AUTHENTICATE sets so airportd/nearbyd go on
-//       (no measurement is produced yet, so Auto Unlock still ends in a ranging timeout).
+//       (no measurement is produced yet, so Auto Unlock still ends in a ranging timeout);
+//   3 = 2 plus an Intel FTM range request to the last AWDL peer on every START; the
+//       firmware's reply is only logged ("AirportItlwm: ftm ..."), not yet given to macOS.
 // The request structs are opaque (no layout known), so ENABLE/START are hex-dumped to learn
 // it. The dump never crosses the end of the page holding the first byte, which is mapped,
 // so a short request can't fault. AUTHENTICATE carries the ranging key and is never dumped.
 extern int itlwm_ranging;
+extern void itlwm_ftm_ranging_start(void);   // ItlIwx.cpp: Intel FTM request to the last AWDL peer
 
 static void rangingDump(const char *what, const void *data, size_t want)
 {
@@ -101,6 +104,9 @@ setRANGING_START(apple80211_ranging_start_request_t *data)
 {
     if (itlwm_ranging > 0)
         rangingDump("START", data, 512);
+    // Experiment: ask the Intel firmware to measure the peer itself (needs ranging >= 3).
+    if (itlwm_ranging >= 3)
+        itlwm_ftm_ranging_start();
     return rangingSetResult("START");
 }
 

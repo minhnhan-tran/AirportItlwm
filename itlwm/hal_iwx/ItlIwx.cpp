@@ -185,9 +185,12 @@ int itlwm_awdl_p2p_flush = 1;
 #define IWX_P2P_STA_ID   3
 extern int itlwm_ihs_ie;
 int itlwm_ihs_ie = 1;
-// Auto Unlock ranging ioctls (AirportItlwmSkywalkInterface): 0 unsupported, 1 log, 2 log + accept.
+// Auto Unlock ranging ioctls (AirportItlwmSkywalkInterface): 0 unsupported, 1 log, 2 log + accept,
+// 3 = 2 plus an Intel FTM range request to the last AWDL peer when macOS starts ranging.
 extern int itlwm_ranging;
 int itlwm_ranging = 2;
+// Channel for the FTM experiment (debug.itlwm.ftm / ranging=3); the watch ranged on channel 6.
+int itlwm_ftm_chan = 6;
 extern int itlwm_awdl_infra_nth;
 int itlwm_awdl_infra_nth = 1;
 extern int itlwm_awdl_dpstats;
@@ -204,6 +207,8 @@ static struct {
     uint32_t agg_ok, agg_fail, agg_last_fail;
     uint32_t rx_hw_drop, rx_bss_data, rx_bss_data_uc, rx_ba_drop, rx_input;
 } itlwm_dp;
+#include "if_iwx_tof.h"
+
 static struct iwx_softc *itlwm_dp_sc = NULL;
 
 static void
@@ -240,6 +245,82 @@ itlwm_dpdump_handler SYSCTL_HANDLER_ARGS
         itlwm_dp_dump(sc);
     return 0;
 }
+/*
+ * debug.itlwm.ftm="aa:bb:cc:dd:ee:ff[,chan]": send one Intel FTM range request
+ * (TOF_RANGE_REQ_CMD v13) to that peer and log the result as "AirportItlwm: ftm ...".
+ */
+static char itlwm_ftm_buf[40] = "";
+
+static int itlwm_ftm_hex(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+static int itlwm_ftm_parse(const char *s, uint8_t *addr, int *chan)
+{
+    for (int i = 0; i < 6; i++) {
+        int hi = itlwm_ftm_hex(s[0]);
+        int lo = hi < 0 ? -1 : itlwm_ftm_hex(s[1]);
+        if (hi < 0 || lo < 0)
+            return -1;
+        addr[i] = (uint8_t)(hi << 4 | lo);
+        s += 2;
+        if (i < 5 && *s == ':')
+            s++;
+    }
+    if (*s == ',') {
+        int c = 0;
+        s++;
+        if (*s < '0' || *s > '9')
+            return -1;
+        while (*s >= '0' && *s <= '9' && c < 1000)
+            c = c * 10 + (*s++ - '0');
+        if (c < 1 || c > 233)
+            return -1;
+        *chan = c;
+    }
+    return *s ? -1 : 0;
+}
+
+static int
+itlwm_ftm_handler SYSCTL_HANDLER_ARGS
+{
+    int err = sysctl_handle_string(oidp, itlwm_ftm_buf, sizeof(itlwm_ftm_buf), req);
+    if (err || req->newptr == USER_ADDR_NULL)
+        return err;
+    uint8_t addr[6];
+    int chan = itlwm_ftm_chan;
+    if (itlwm_ftm_parse(itlwm_ftm_buf, addr, &chan)) {
+        IOLog("AirportItlwm: ftm: bad target '%s' (want aa:bb:cc:dd:ee:ff[,chan])\n", itlwm_ftm_buf);
+        return EINVAL;
+    }
+    if (itlwm_dp_sc == NULL)
+        return ENXIO;
+    ItlIwx::iwx_ftm_request(itlwm_dp_sc, addr, chan);
+    return 0;
+}
+
+/* Called by AirportItlwmSkywalkInterface::setRANGING_START when debug.itlwm.ranging >= 3. */
+void itlwm_ftm_ranging_start(void)
+{
+    struct iwx_softc *sc = itlwm_dp_sc;
+    if (sc == NULL)
+        return;
+    static const uint8_t zero[6] = { 0, 0, 0, 0, 0, 0 };
+    /* The START request layout is still unknown, so aim at the last AWDL transmitter. */
+    if (memcmp(sc->sc_awdl_rx_lastta, zero, 6) == 0) {
+        IOLog("AirportItlwm: ftm: no AWDL peer seen yet, not sending\n");
+        return;
+    }
+    ItlIwx::iwx_ftm_request(sc, sc->sc_awdl_rx_lastta, itlwm_ftm_chan);
+}
+
 SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItlwm diagnostics");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
@@ -259,6 +340,9 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &i
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_bss_promisc, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_bss_promisc, 0, "1: promiscuous station MAC for AWDL (breaks infra traffic)");
 SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
             itlwm_dpdump_handler, "I", "write 1 to IOLog data-path counters");
+SYSCTL_PROC(_debug_itlwm, OID_AUTO, ftm, CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
+            itlwm_ftm_handler, "A", "send one Intel FTM range request: aa:bb:cc:dd:ee:ff[,channel]; results go to dmesg");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, ftm_chan, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ftm_chan, 0, "channel for the FTM request sent when debug.itlwm.ranging=3 (default 6)");
 
 /*
  * Spatial streams usable towards the peer. On an HT-only link a peer in
@@ -407,6 +491,8 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ranging);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_ftm);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_ftm_chan);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
@@ -10066,6 +10152,110 @@ iwx_awdl_mac_task(void *arg)
     splx(s);
 }
 
+/*
+ * Intel FTM (802.11mc) experiment for Apple Watch Auto Unlock ranging.
+ * TOF_RANGE_REQ_CMD v13 as in Linux iwlwifi mvm/ftm-initiator.c (start_v13): one unsecured
+ * target, non-associated style request, 20 MHz HT on the given channel. The firmware
+ * answers with TOF_RANGE_RESPONSE_NOTIF (v9), logged by itlwm_ftm_rsp().
+ */
+void ItlIwx::
+iwx_ftm_request(struct iwx_softc *sc, const uint8_t *addr, int chan)
+{
+    if (sc == NULL || (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
+        return;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+    memcpy(sc->sc_ftm_addr, addr, IEEE80211_ADDR_LEN);
+    sc->sc_ftm_chan = (uint8_t)chan;
+    sc->sc_ftm_reqs++;
+    that->iwx_add_task(sc, systq, &sc->sc_ftm_task);
+}
+
+void ItlIwx::
+iwx_ftm_task(void *arg)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)arg;
+    struct ieee80211com *ic = &sc->sc_ic;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+    struct iwx_tof_range_req_cmd cmd;
+    struct iwx_tof_range_req_ap_entry *t = &cmd.ap[0];
+    int err, s;
+
+    if (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))
+        return;
+    /* Like Linux, only talk TOF_RANGE_REQ v13 to a firmware that says it speaks it. */
+    int ver = that->iwx_lookup_cmd_ver(sc, IWX_LOCATION_GROUP, IWX_TOF_RANGE_REQ_CMD);
+    if (ver != 13) {
+        IOLog("AirportItlwm: ftm: firmware TOF_RANGE_REQ_CMD version %d (need 13), not sending\n", ver);
+        return;
+    }
+    s = splnet();
+    memset(&cmd, 0, sizeof(cmd));
+    /* As Linux iwl_mvm_ftm_cmd_common(): MACADDR_RANDOM is always set; with the (zeroed) mask
+     * nothing is randomized, so the template below is the address used. */
+    cmd.initiator_flags = htole32(IWX_TOF_INITIATOR_FLAGS_MACADDR_RANDOM |
+        IWX_TOF_INITIATOR_FLAGS_NON_ASAP_SUPPORT);
+    cmd.request_id = ++sc->sc_ftm_id;
+    cmd.num_of_ap = 1;
+    cmd.req_timeout_ms = htole32(3000);
+    memcpy(cmd.macaddr_template, ic->ic_myaddr, IEEE80211_ADDR_LEN);
+    if (ic->ic_state == IEEE80211_S_RUN && ic->ic_bss)
+        memcpy(cmd.range_req_bssid, ic->ic_bss->ni_bssid, IEEE80211_ADDR_LEN);
+    else
+        memset(cmd.range_req_bssid, 0xff, IEEE80211_ADDR_LEN);
+    cmd.tsf_mac_id = htole32(0xff);
+
+    memcpy(t->bssid, sc->sc_ftm_addr, IEEE80211_ADDR_LEN);
+    /* Linux iwl_mvm_ftm_set_target_flags(): ASAP (iw default) + DYNACK; ALGO is MAX_LIKE = no flag. */
+    t->initiator_ap_flags = htole32(IWX_INITIATOR_AP_FLAGS_ASAP | IWX_INITIATOR_AP_FLAGS_DYN_ACK);
+    t->channel_num = sc->sc_ftm_chan;
+    t->format_bw = (uint8_t)((IWX_LOCATION_FRAME_FORMAT_HT & IWX_LOCATION_FMT_BW_FORMAT) |
+        ((IWX_LOCATION_BW_20MHZ << 4) & IWX_LOCATION_FMT_BW_BANDWIDTH));
+    t->ctrl_ch_position = 0;
+    t->ftmr_max_retries = 3;
+    t->samples_per_burst = 0;       /* 0 = no preference (what `iw ... ftm_request` sends by default) */
+    t->num_of_bursts = 0;           /* log2: one burst */
+    t->sta_id = 0xff;               /* IWL_INVALID_STA: not a station we are associated with */
+    /* iwl_mvm_ftm_set_ndp_params(): R2I/I2R max rep 7, max STS 1 (<< IWL_LOCATION_MAX_STS_POS = 3), max total LTF 3 */
+    t->r2i_ndp_params = 7 | (1 << 3);
+    t->i2r_ndp_params = 7 | (1 << 3);
+    t->r2i_max_total_ltf = 3;
+    t->i2r_max_total_ltf = 3;
+    t->band = sc->sc_ftm_chan <= 14 ? IWX_PHY_BAND_24 : IWX_PHY_BAND_5;
+
+    /* No WANT_RESP: the firmware's real answer is the RANGE_RESPONSE notification, see itlwm_ftm_rsp(). */
+    err = that->iwx_send_cmd_pdu(sc, IWX_WIDE_ID(IWX_LOCATION_GROUP, IWX_TOF_RANGE_REQ_CMD), 0,
+        sizeof(cmd), &cmd);
+    IOLog("AirportItlwm: ftm request id=%u to %02x:%02x:%02x:%02x:%02x:%02x ch %u: send %s (err %d)\n",
+        cmd.request_id, t->bssid[0], t->bssid[1], t->bssid[2], t->bssid[3], t->bssid[4], t->bssid[5],
+        t->channel_num, err ? "FAILED" : "ok", err);
+    splx(s);
+}
+
+/* TOF_RANGE_RESPONSE_NOTIF v9: log every report; rtt is in picoseconds (Linux fw/api/location.h). */
+static void itlwm_ftm_rsp(struct iwx_softc *sc, const struct iwx_tof_range_rsp_ntfy *rsp, size_t len)
+{
+    const size_t hdr = offsetof(struct iwx_tof_range_rsp_ntfy, ap);
+    sc->sc_ftm_rsps++;
+    if (len < hdr) {
+        IOLog("AirportItlwm: ftm rsp too short (%u bytes)\n", (unsigned)len);
+        return;
+    }
+    unsigned n = rsp->num_of_aps;
+    if (n > IWX_TOF_MAX_APS || len < hdr + n * sizeof(struct iwx_tof_range_rsp_ap_entry_ntfy)) {
+        IOLog("AirportItlwm: ftm rsp id=%u: %u aps do not fit in %u bytes\n", rsp->request_id, n, (unsigned)len);
+        return;
+    }
+    IOLog("AirportItlwm: ftm rsp id=%u aps=%u last=%u len=%u\n", rsp->request_id, n, rsp->last_report, (unsigned)len);
+    for (unsigned i = 0; i < n; i++) {
+        const struct iwx_tof_range_rsp_ap_entry_ntfy *e = &rsp->ap[i];
+        IOLog("AirportItlwm: ftm ap%u %02x:%02x:%02x:%02x:%02x:%02x status=%u bw=%u rtt=%u var=%u spread=%u rssi=%d burst=%u refusal=%u t2t3=%u t1t4=%u conf=%u\n",
+            i, e->bssid[0], e->bssid[1], e->bssid[2], e->bssid[3], e->bssid[4], e->bssid[5],
+            e->measure_status, e->measure_bw, le32toh(e->rtt), le32toh(e->rtt_variance), le32toh(e->rtt_spread),
+            e->rssi, e->last_burst, e->refusal_period, le32toh(e->t2t3_initiator), le32toh(e->t1t4_responder),
+            e->rttConfidence);
+    }
+}
+
 /* Same descriptor layout as iwx_tx, for a frame that net80211 never saw. */
 int ItlIwx::
 iwx_awdl_tx_frame(struct iwx_softc *sc, int qid, const uint8_t *frame, size_t len)
@@ -12906,6 +13096,7 @@ iwx_stop(struct _ifnet *ifp)
     iwx_del_task(sc, systq, &sc->mac_ctxt_task);
     iwx_del_task(sc, systq, &sc->chan_ctxt_task);
     iwx_del_task(sc, systq, &sc->sc_awdl_mac_task);
+    iwx_del_task(sc, systq, &sc->sc_ftm_task);
     KASSERT(sc->task_refs.refs >= 1, "sc->task_refs.refs >= 1");
     //    refcnt_finalize(&sc->task_refs, "iwxstop");
     
@@ -13835,6 +14026,15 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                 break;
             }
                 
+            case IWX_WIDE_ID(IWX_LOCATION_GROUP, IWX_TOF_RANGE_REQ_CMD):
+                /* Only the command response, which iwx_cmd_done() hands to the sender. */
+                break;
+            case IWX_WIDE_ID(IWX_LOCATION_GROUP, IWX_TOF_RANGE_RESPONSE_NOTIF): {
+                struct iwx_tof_range_rsp_ntfy *rsp;
+                SYNC_RESP_STRUCT(rsp, pkt, struct iwx_tof_range_rsp_ntfy *);
+                itlwm_ftm_rsp(sc, rsp, iwx_rx_packet_payload_len(pkt));
+                break;
+            }
             case IWX_WIDE_ID(IWX_MAC_CONF_GROUP, IWX_SESSION_PROTECTION_NOTIF): {
                 struct iwx_session_prot_notif *notif;
                 SYNC_RESP_STRUCT(notif, pkt, struct iwx_session_prot_notif *);
@@ -15863,6 +16063,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     task_set(&sc->mac_ctxt_task, iwx_mac_ctxt_task, sc, "iwx_mac_ctxt_task");
     task_set(&sc->chan_ctxt_task, iwx_chan_ctxt_task, sc, "iwx_chan_ctxt_task");
     task_set(&sc->sc_awdl_mac_task, iwx_awdl_mac_task, sc, "iwx_awdl_mac_task");
+    task_set(&sc->sc_ftm_task, iwx_ftm_task, sc, "iwx_ftm_task");
     
     ic->ic_node_alloc = iwx_node_alloc;
     ic->ic_bgscan_start = iwx_bgscan;
@@ -15902,6 +16103,8 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_ranging);
+    sysctl_register_oid(&sysctl__debug_itlwm_ftm);
+    sysctl_register_oid(&sysctl__debug_itlwm_ftm_chan);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);
         itlwm_sysctl_registered = true;

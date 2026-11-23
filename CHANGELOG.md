@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.94] — 2026-11-23
+
+### Added
+- Auto Unlock ranging, step 2: an Intel FTM (802.11mc) range request, ported from Linux iwlwifi (`mvm/ftm-initiator.c`, `TOF_RANGE_REQ_CMD` v13 / `TOF_RANGE_RESPONSE_NOTIF` v9) in `itlwm/hal_iwx/if_iwx_tof.h` and `ItlIwx.cpp`. It is only sent when the firmware reports command version 13. Results are logged as `AirportItlwm: ftm ...` (rtt in picoseconds) and are not yet reported to macOS.
+- `debug.itlwm.ftm` (write `aa:bb:cc:dd:ee:ff[,channel]` to send one request), `debug.itlwm.ftm_chan` (default 6) and `debug.itlwm.ranging=3` (also send a request to the last AWDL peer whenever macOS starts ranging). The default stays `2`, so nothing is sent unless you ask for it.
+
 ## [2.7.93] — 2026-11-23
 
 ### Added
