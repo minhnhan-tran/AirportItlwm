@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.92] — 2026-11-23
+
+### Added
+- README: documented the `AirPlay to Mac` status (`ControlCenter` AirPlay Receiver / `AirTunes/960.13.25`, `isAirPlayReceiverSupported: yes`, `_airplay._tcp` and `_raop._tcp` on port 7000, BLE access control via `BlueToolFixup` `-btlfxadvsets`, and three iPhone-to-Mac video and 48 kHz buffered audio sessions over the local network `en0` with 0 audio glitches), along with what has not been tested yet (`en1`-only, Screen Mirroring, and P2P over `awdl0`).
+
 ## [2.7.91] — 2026-11-23
 
 ### Changed

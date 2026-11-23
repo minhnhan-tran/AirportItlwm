@@ -108,6 +108,23 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   - `ioreg` counters: `LLW*` on `llw0`; `AWDLDataRx*`, `AWDLListenHomeRT`,
     `AWDLListenShared`, `AWDLListenShareFail`, `AWDLTxFwHomeDefer`, `AWDLP2PFlushes`
     and `AWDLP2PFlushSkipped` on the AWDL interface.
+- **AirPlay to Mac works well over the local network** (tested on a MacPro7,1 SMBIOS
+  with an Intel AX210, macOS Tahoe 26.7.3, an iPhone 16 Pro and AirportItlwm 2.7.90
+  with the Continuity boot-args and Intel Bluetooth stack below). Notes:
+  - `ControlCenter` (`AirPlayReceiverKit`, `AirTunes/960.13.25`) reports
+    `isAirPlayReceiverSupported: yes` and `Device has Wifi Unified Driver Model (UDM):
+    true`, advertises `_airplay._tcp` and `_raop._tcp` on port 7000, and broadcasts BLE
+    access control (`BlueToolFixup` with `-btlfxadvsets` on Intel Bluetooth).
+  - Three iPhone-to-Mac sessions completed cleanly (52 s video playback with 48 kHz
+    AAC buffered audio, 19 s Playback V2 video, and 1 m 4 s 48 kHz buffered audio;
+    0 audio glitches reported).
+  - In all three sessions, both `en0` (Ethernet) and `en1` (Wi-Fi) were on the same
+    network and the iPhone connected over `en0` (`T=Enet`).
+  - Not tested yet: infrastructure AirPlay over `en1` alone (Ethernet disconnected),
+    Screen Mirroring, and peer-to-peer AirPlay over `awdl0` with the sender off the
+    local network (`ControlCenter` logs `P2P is enabled` and `AWDL Available`, though
+    `dns-sd -includeAWDL -B _airplay._tcp` did not list `awdl0` and `com.apple.airplay`
+    logged `_APAdvertiserUpdateSocialChannelForAWDL:1495: false condition`).
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
