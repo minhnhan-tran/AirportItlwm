@@ -125,6 +125,30 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
     local network (`ControlCenter` logs `P2P is enabled` and `AWDL Available`, though
     `dns-sd -includeAWDL -B _airplay._tcp` did not list `awdl0` and `com.apple.airplay`
     logged `_APAdvertiserUpdateSocialChannelForAWDL:1495: false condition`).
+- **Unlock and Approve with Apple Watch work** (tested on a MacPro7,1 SMBIOS with an
+  Intel AX210, macOS Tahoe 26.7.3, an Apple Watch Ultra 3, AirportItlwm 2.7.95, and the
+  Bluetooth stack below; Auto Unlock completed in ~0.9 s):
+  - **Approve with Apple Watch** (`LAContext` prompts) runs over Bluetooth LE alone and
+    needs no Wi-Fi ranging or `sharingd` override.
+  - **Auto Unlock (wake from sleep / lock screen)** normally triggers AWDL Wi-Fi ranging
+    (`APPLE80211_IOC_RANGING_ENABLE`/`START`) and fails with `SFAutoUnlockErrorDomain`
+    Code 137 (`Ranging Timeout: Results Not Returned`). In testing, the watch did not
+    answer unauthenticated Intel 802.11mc FTM (`TOF_RANGE_REQ_CMD` v13, `status=2`), and
+    Intel AX2xx firmware does not advertise `SECURE_LTF_SUPPORT` (802.11az).
+  - **Required `sharingd` workaround for Auto Unlock:** skip ranging in
+    `sharingd`'s Objective-C `SDAutoUnlockLockSession` path (`startAWDL` / `peerInRange:`):
+    ```sh
+    defaults write com.apple.sharingd phoneAutoUnlockSkipRanging -bool true
+    killall sharingd
+    ```
+    (`classCUnlockSkipRanging` belongs to the Swift `SDAuthenticationLockSession` path
+    and does not affect macOS Watch Auto Unlock. Revert with
+    `defaults delete com.apple.sharingd phoneAutoUnlockSkipRanging && killall sharingd`.)
+  - **Bluetooth IRK & stability:** Like Instant Hotspot, Mac-initiated BLE connects to
+    the Apple Watch require the watch's IRK in `ibt-irk` (pass both the iPhone and Watch
+    accounts to `ibt-irk.sh`, see below). If the watch is not discovered after a reboot or
+    idle (`LAContext` error `-11`), toggle Bluetooth off and back on to reload the
+    resolving list.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".
@@ -139,9 +163,10 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
 
 ### Boot-args and kexts for all Continuity features
 
-AirDrop, Handoff, Universal Clipboard, iPhone Instant Hotspot and wireless Continuity
-Camera need the Wi-Fi boot-args and a patched Bluetooth stack. Tested set (MacPro7,1
-SMBIOS, Intel AX210, macOS Tahoe 26.7.3, iPhone 16 Pro), in OpenCore `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 > boot-args`:
+AirDrop, Handoff, Universal Clipboard, iPhone Instant Hotspot, wireless Continuity
+Camera, and Unlock/Approve with Apple Watch were tested with the Wi-Fi boot-args and
+patched Bluetooth stack below (MacPro7,1 SMBIOS, Intel AX210, macOS Tahoe 26.7.3,
+iPhone 16 Pro, Apple Watch Ultra 3), in OpenCore `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 > boot-args`:
 
 ```
 -lilubetaall -itlawdl -itlawdlp2p -itlawdlpromisc -itlawdllisten -itlawdltx -itlawdlaw -itlawdldata -itlllw -ibtcompatbeta -btlfxadvsets
@@ -170,13 +195,15 @@ Bluetooth kexts used (load order: Lilu first):
 - **IntelBluetoothFirmware / IntelBTPatcher / IntelBluetoothInjector**:
   [minhnhan-tran/IntelBluetoothFirmware](https://github.com/minhnhan-tran/IntelBluetoothFirmware)
   (IntelBTPatcher 2.6.1 or later).
-- **Instant Hotspot also needs the iPhone's IRK** in the controller's resolving list,
-  or the Mac's Bluetooth LE connect to the iPhone times out. Set it once with
-  `sudo scripts/ibt-irk.sh set "Public <iPhone BLE address>"` (from that repo; reads the
-  System keychain, never prints the key), then persist it across reboots with
-  `sudo scripts/ibt-irk.sh oc <EFI>/EFI/OC/config.plist`. The key can also be given
-  as boot-arg `ibtirk=` or NVRAM `ibt-irk`. Without a key IntelBTPatcher changes
-  nothing, and Instant Hotspot from the Wi-Fi menu does not wake the hotspot.
+- **Instant Hotspot and Apple Watch Auto Unlock / Approve also need the peer IRK(s)** in
+  the controller's resolving list, or the Mac's Bluetooth LE connects to those devices
+  time out. Set them once with
+  `sudo scripts/ibt-irk.sh set "Public <iPhone BLE address>" "Public <Watch BLE address>"`
+  (from that repo, up to 4 accounts; reads the System keychain, never prints the keys),
+  then persist them across reboots with
+  `sudo scripts/ibt-irk.sh oc <EFI>/EFI/OC/config.plist`. Keys can also be given as
+  boot-arg `ibtirk=` or NVRAM `ibt-irk`. Without a key IntelBTPatcher changes nothing,
+  so Instant Hotspot from the Wi-Fi menu and Apple Watch discovery fail.
 - NVRAM `bluetoothExternalDongleFailed` and `bluetoothInternalControllerInfo` must be set
   through OpenCore (see the BlueToolFixup README).
 

@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.99] — 2026-11-23
+
+### Changed
+- Documented Unlock and Approve with Apple Watch on macOS 26 in `README.md` (`phoneAutoUnlockSkipRanging` workaround for Auto Unlock ranging, multi-peer `ibt-irk` IRK setup, and the Bluetooth off/on recovery note).
+
 ## [2.7.98] — 2026-11-23
 
 ### Fixed
