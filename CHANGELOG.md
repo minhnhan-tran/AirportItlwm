@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.95] — 2026-11-23
+
+### Fixed
+- Guard `iwx_ftm_request`, `iwx_ftm_task`, and `debug.itlwm.ftm` against sending `TOF_RANGE_REQ_CMD` when Wi-Fi is not running (`!IFF_RUNNING`, returning `ENETDOWN` from the sysctl), validate channel `1–233` in `iwx_ftm_request` and `debug.itlwm.ftm` even when `debug.itlwm.ftm_chan` is used as fallback, and avoid overwriting `itlwm_ftm_buf` on invalid sysctl input.
+
 ## [2.7.94] — 2026-11-23
 
 ### Added

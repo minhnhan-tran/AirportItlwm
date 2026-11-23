@@ -291,18 +291,25 @@ static int itlwm_ftm_parse(const char *s, uint8_t *addr, int *chan)
 static int
 itlwm_ftm_handler SYSCTL_HANDLER_ARGS
 {
-    int err = sysctl_handle_string(oidp, itlwm_ftm_buf, sizeof(itlwm_ftm_buf), req);
+    char buf[sizeof(itlwm_ftm_buf)];
+    strlcpy(buf, itlwm_ftm_buf, sizeof(buf));
+    int err = sysctl_handle_string(oidp, buf, sizeof(buf), req);
     if (err || req->newptr == USER_ADDR_NULL)
         return err;
     uint8_t addr[6];
     int chan = itlwm_ftm_chan;
-    if (itlwm_ftm_parse(itlwm_ftm_buf, addr, &chan)) {
-        IOLog("AirportItlwm: ftm: bad target '%s' (want aa:bb:cc:dd:ee:ff[,chan])\n", itlwm_ftm_buf);
+    if (itlwm_ftm_parse(buf, addr, &chan) || chan < 1 || chan > 233) {
+        IOLog("AirportItlwm: ftm: bad target '%s' (want aa:bb:cc:dd:ee:ff[,ch 1-233])\n", buf);
         return EINVAL;
     }
-    if (itlwm_dp_sc == NULL)
+    struct iwx_softc *sc = itlwm_dp_sc;
+    if (sc == NULL)
         return ENXIO;
-    ItlIwx::iwx_ftm_request(itlwm_dp_sc, addr, chan);
+    if (!(sc->sc_ic.ic_ac.ac_if.if_flags & IFF_RUNNING) ||
+        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
+        return ENETDOWN;
+    strlcpy(itlwm_ftm_buf, buf, sizeof(itlwm_ftm_buf));
+    ItlIwx::iwx_ftm_request(sc, addr, chan);
     return 0;
 }
 
@@ -333,7 +340,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, 
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "AWDL data on the infra channel outside listens: 1 send on the station queue, 0 hold for the next listen");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_p2p_flush, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_p2p_flush, 0, "Flush the P2P TX queue before a MAC/PHY move when at least this many frames wait (0 = never)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_qmax, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_qmax, 0, "Max frames on the station TX queue before unicast AWDL data waits (0 = no limit)");
-SYSCTL_INT(_debug_itlwm, OID_AUTO, ranging, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ranging, 0, "Wi-Fi ranging ioctls (Auto Unlock): 0 unsupported, 1 log only, 2 log and accept ENABLE/START/AUTHENTICATE");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, ranging, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ranging, 0, "Wi-Fi ranging ioctls (Auto Unlock): 0 unsupported, 1 log only, 2 log and accept ENABLE/START/AUTHENTICATE, 3 also send FTM");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
@@ -10161,7 +10168,9 @@ iwx_awdl_mac_task(void *arg)
 void ItlIwx::
 iwx_ftm_request(struct iwx_softc *sc, const uint8_t *addr, int chan)
 {
-    if (sc == NULL || (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
+    if (sc == NULL || chan < 1 || chan > 233 ||
+        !(sc->sc_ic.ic_ac.ac_if.if_flags & IFF_RUNNING) ||
+        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
         return;
     ItlIwx *that = container_of(sc, ItlIwx, com);
     memcpy(sc->sc_ftm_addr, addr, IEEE80211_ADDR_LEN);
@@ -10180,7 +10189,8 @@ iwx_ftm_task(void *arg)
     struct iwx_tof_range_req_ap_entry *t = &cmd.ap[0];
     int err, s;
 
-    if (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))
+    if (!(ic->ic_ac.ac_if.if_flags & IFF_RUNNING) ||
+        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
         return;
     /* Like Linux, only talk TOF_RANGE_REQ v13 to a firmware that says it speaks it. */
     int ver = that->iwx_lookup_cmd_ver(sc, IWX_LOCATION_GROUP, IWX_TOF_RANGE_REQ_CMD);
