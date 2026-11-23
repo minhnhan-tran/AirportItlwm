@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.97] — 2026-11-23
+
+### Fixed
+- The `RANGING_START` hex dump (`debug.itlwm.ranging` >= 1, default 2) no longer writes the key material at +0x40..+0x7f to the kernel log; those rows print as `<redacted>`. Updated the mode 3 comment (it now targets the START peer).
+
 ## [2.7.96] — 2026-11-23
 
 ### Fixed

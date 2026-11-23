@@ -27,15 +27,17 @@ OSDefineMetaClassAndStructors(AirportItlwmSkywalkInterface, IO80211InfraProtocol
 //   0 = unsupported, no logs (old behaviour); 1 = log only, still unsupported;
 //   2 = log and accept the ENABLE/START/AUTHENTICATE sets so airportd/nearbyd go on
 //       (no measurement is produced yet, so Auto Unlock still ends in a ranging timeout);
-//   3 = 2 plus an Intel FTM range request to the last AWDL peer on every START; the
-//       firmware's reply is only logged ("AirportItlwm: ftm ..."), not yet given to macOS.
-// The request structs are opaque (no layout known), so ENABLE/START are hex-dumped to learn
-// it. The dump never crosses the end of the page holding the first byte, which is mapped,
-// so a short request can't fault. AUTHENTICATE carries the ranging key and is never dumped.
+//   3 = 2 plus an Intel FTM range request to the START peer (AWDL MAC at +0x32, channel at
+//       +0x38); the firmware's reply is only logged ("AirportItlwm: ftm ..."), not given to macOS.
+// The request structs are opaque, so ENABLE/START are hex-dumped to learn them. The dump never
+// crosses the end of the page holding the first byte, which is mapped, so a short request
+// can't fault. AUTHENTICATE carries the ranging key and is never dumped; START carries key
+// material at +0x40..+0x7f, so those rows are printed as <redacted>.
 extern int itlwm_ranging;
 extern void itlwm_ftm_ranging_start(const uint8_t *req);   // ItlIwx.cpp: Intel FTM request to the START peer
 
-static void rangingDump(const char *what, const void *data, size_t want)
+static void rangingDump(const char *what, const void *data, size_t want,
+                        size_t redactLo = 0, size_t redactHi = 0)
 {
     static const char hx[] = "0123456789abcdef";
     if (data == NULL) {
@@ -50,6 +52,10 @@ static void rangingDump(const char *what, const void *data, size_t want)
     for (size_t off = 0; off < n; off += 32) {
         char line[32 * 2 + 1];
         size_t m = n - off < 32 ? n - off : 32;
+        if (off < redactHi && off + m > redactLo) {
+            IOLog("AirportItlwm: ranging %s +%03lx <redacted>\n", what, (unsigned long)off);
+            continue;
+        }
         for (size_t i = 0; i < m; i++) {
             line[i * 2] = hx[b[off + i] >> 4];
             line[i * 2 + 1] = hx[b[off + i] & 0xf];
@@ -103,7 +109,7 @@ IOReturn AirportItlwmSkywalkInterface::
 setRANGING_START(apple80211_ranging_start_request_t *data)
 {
     if (itlwm_ranging > 0)
-        rangingDump("START", data, 512);
+        rangingDump("START", data, 512, 0x40, 0x80);
     // Experiment: ask the Intel firmware to measure the peer itself (needs ranging >= 3).
     if (itlwm_ranging >= 3 && data)
         itlwm_ftm_ranging_start((const uint8_t *)data);
