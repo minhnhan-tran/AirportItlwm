@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.93] — 2026-11-23
+
+### Added
+- `debug.itlwm.ranging` (default `2`), step 1 of the Apple Watch Auto Unlock ranging work. The Wi-Fi ranging ioctls (`RANGING_ENABLE`/`START`/`AUTHENTICATE` sets, `RANGING_ENABLE`/`START`/`CAPS` gets) are logged to the kernel log as `AirportItlwm: ranging …` (read with `dmesg`). The `ENABLE` and `START` requests are hex-dumped (256 and 512 bytes, never past the end of the page that holds the request) to learn their layout. `AUTHENTICATE` carries the ranging key and is never dumped. Mode `2` returns success for the three sets so airportd/nearbyd go on; Auto Unlock still ends in `Ranging Timeout` because no measurement is produced yet. `1` logs only (still unsupported), `0` restores the previous behaviour.
+
 ## [2.7.92] — 2026-11-23
 
 ### Added

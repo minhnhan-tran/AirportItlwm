@@ -23,6 +23,96 @@ extern IOCommandGate *_fCommandGate;
 #define super IO80211InfraProtocol
 OSDefineMetaClassAndStructors(AirportItlwmSkywalkInterface, IO80211InfraProtocol);
 
+// Wi-Fi ranging (Apple Watch Auto Unlock) experiment, debug.itlwm.ranging:
+//   0 = unsupported, no logs (old behaviour); 1 = log only, still unsupported;
+//   2 = log and accept the ENABLE/START/AUTHENTICATE sets so airportd/nearbyd go on
+//       (no measurement is produced yet, so Auto Unlock still ends in a ranging timeout).
+// The request structs are opaque (no layout known), so ENABLE/START are hex-dumped to learn
+// it. The dump never crosses the end of the page holding the first byte, which is mapped,
+// so a short request can't fault. AUTHENTICATE carries the ranging key and is never dumped.
+extern int itlwm_ranging;
+
+static void rangingDump(const char *what, const void *data, size_t want)
+{
+    static const char hx[] = "0123456789abcdef";
+    if (data == NULL) {
+        IOLog("AirportItlwm: ranging %s data=NULL\n", what);
+        return;
+    }
+    uintptr_t p = (uintptr_t)data;
+    size_t room = PAGE_SIZE - (p & (PAGE_SIZE - 1));
+    size_t n = want < room ? want : room;
+    const uint8_t *b = (const uint8_t *)data;
+    IOLog("AirportItlwm: ranging %s dump %lu bytes%s\n", what, (unsigned long)n, n < want ? " (cut at page end)" : "");
+    for (size_t off = 0; off < n; off += 32) {
+        char line[32 * 2 + 1];
+        size_t m = n - off < 32 ? n - off : 32;
+        for (size_t i = 0; i < m; i++) {
+            line[i * 2] = hx[b[off + i] >> 4];
+            line[i * 2 + 1] = hx[b[off + i] & 0xf];
+        }
+        line[m * 2] = '\0';
+        IOLog("AirportItlwm: ranging %s +%03lx %s\n", what, (unsigned long)off, line);
+    }
+}
+
+static IOReturn rangingSetResult(const char *what)
+{
+    IOReturn ret = itlwm_ranging >= 2 ? kIOReturnSuccess : kIOReturnUnsupported;
+    if (itlwm_ranging > 0)
+        IOLog("AirportItlwm: ranging set %s -> 0x%x\n", what, ret);
+    return ret;
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+getRANGING_ENABLE(apple80211_ranging_enable_request_t *)
+{
+    if (itlwm_ranging > 0)
+        IOLog("AirportItlwm: ranging get ENABLE -> unsupported\n");
+    return kIOReturnUnsupported;
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+getRANGING_START(apple80211_ranging_start_request_t *)
+{
+    if (itlwm_ranging > 0)
+        IOLog("AirportItlwm: ranging get START -> unsupported\n");
+    return kIOReturnUnsupported;
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+getRANGING_CAPS(apple80211_ranging_capabilities_t *)
+{
+    if (itlwm_ranging > 0)
+        IOLog("AirportItlwm: ranging get CAPS -> unsupported\n");
+    return kIOReturnUnsupported;
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+setRANGING_ENABLE(apple80211_ranging_enable_request_t *data)
+{
+    if (itlwm_ranging > 0)
+        rangingDump("ENABLE", data, 256);
+    return rangingSetResult("ENABLE");
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+setRANGING_START(apple80211_ranging_start_request_t *data)
+{
+    if (itlwm_ranging > 0)
+        rangingDump("START", data, 512);
+    return rangingSetResult("START");
+}
+
+IOReturn AirportItlwmSkywalkInterface::
+setRANGING_AUTHENTICATE(apple80211_ranging_authenticate_request_t *data)
+{
+    // Holds the ranging key: log the call only, never its bytes.
+    if (itlwm_ranging > 0)
+        IOLog("AirportItlwm: ranging AUTHENTICATE called (data %s, contents not logged)\n", data ? "set" : "NULL");
+    return rangingSetResult("AUTHENTICATE");
+}
+
 const char* hexdump(uint8_t *buf, size_t len) {
     ssize_t str_len = len * 3 + 1;
     char *str = (char*)IOMalloc(str_len);

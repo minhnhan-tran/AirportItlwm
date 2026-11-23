@@ -185,6 +185,9 @@ int itlwm_awdl_p2p_flush = 1;
 #define IWX_P2P_STA_ID   3
 extern int itlwm_ihs_ie;
 int itlwm_ihs_ie = 1;
+// Auto Unlock ranging ioctls (AirportItlwmSkywalkInterface): 0 unsupported, 1 log, 2 log + accept.
+extern int itlwm_ranging;
+int itlwm_ranging = 2;
 extern int itlwm_awdl_infra_nth;
 int itlwm_awdl_infra_nth = 1;
 extern int itlwm_awdl_dpstats;
@@ -249,6 +252,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, 
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "AWDL data on the infra channel outside listens: 1 send on the station queue, 0 hold for the next listen");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_p2p_flush, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_p2p_flush, 0, "Flush the P2P TX queue before a MAC/PHY move when at least this many frames wait (0 = never)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_qmax, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_qmax, 0, "Max frames on the station TX queue before unicast AWDL data waits (0 = no limit)");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, ranging, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ranging, 0, "Wi-Fi ranging ioctls (Auto Unlock): 0 unsupported, 1 log only, 2 log and accept ENABLE/START/AUTHENTICATE");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
@@ -402,6 +406,7 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_p2p_flush);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_ranging);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
@@ -15896,6 +15901,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_p2p_flush);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
+    sysctl_register_oid(&sysctl__debug_itlwm_ranging);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);
         itlwm_sysctl_registered = true;

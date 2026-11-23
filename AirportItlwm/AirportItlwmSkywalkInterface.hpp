@@ -181,8 +181,9 @@ public:
     virtual IOReturn getLEAKY_AP_STATS_MODE(apple80211_leaky_ap_setting *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getCOUNTRY_CHANNELS(apple80211_country_channel_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getPRIVATE_MAC(apple80211_private_mac_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn getRANGING_ENABLE(apple80211_ranging_enable_request_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn getRANGING_START(apple80211_ranging_start_request_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    // Ranging ioctls (Auto Unlock): logged / accepted per debug.itlwm.ranging, see the .cpp.
+    virtual IOReturn getRANGING_ENABLE(apple80211_ranging_enable_request_t *) AIRPORT_SKYWALK_OVERRIDE;
+    virtual IOReturn getRANGING_START(apple80211_ranging_start_request_t *) AIRPORT_SKYWALK_OVERRIDE;
     virtual IOReturn getAWDL_RSDB_CAPS(apple80211_rsdb_capability *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getTKO_PARAMS(apple80211_tko_params *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getTKO_DUMP(apple80211_tko_dump *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
@@ -199,7 +200,7 @@ public:
     virtual IOReturn getBTCOEX_2G_CHAIN_DISABLE(apple80211_btcoex_2g_chain_disable *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getPOWER_BUDGET(apple80211_power_budget_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getOFFLOAD_TCPKA_ENABLE(apple80211_offload_tcpka_enable_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn getRANGING_CAPS(apple80211_ranging_capabilities_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    virtual IOReturn getRANGING_CAPS(apple80211_ranging_capabilities_t *) AIRPORT_SKYWALK_OVERRIDE;
     virtual IOReturn getSUPPRESS_SCANS(apple80211_suppress_scans_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getHOST_AP_MODE_HIDDEN(apple80211_host_ap_mode_hidden_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getLQM_CONFIG(apple80211_lqm_config_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
@@ -330,9 +331,9 @@ public:
     virtual IOReturn setPRIVATE_MAC(apple80211_private_mac_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setRESET_CHIP(apple80211_reset_command *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setCRASH(apple80211_crash_command *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn setRANGING_ENABLE(apple80211_ranging_enable_request_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn setRANGING_START(apple80211_ranging_start_request_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn setRANGING_AUTHENTICATE(apple80211_ranging_authenticate_request_t *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    virtual IOReturn setRANGING_ENABLE(apple80211_ranging_enable_request_t *) AIRPORT_SKYWALK_OVERRIDE;
+    virtual IOReturn setRANGING_START(apple80211_ranging_start_request_t *) AIRPORT_SKYWALK_OVERRIDE;
+    virtual IOReturn setRANGING_AUTHENTICATE(apple80211_ranging_authenticate_request_t *) AIRPORT_SKYWALK_OVERRIDE;
     virtual IOReturn setTKO_PARAMS(apple80211_tko_params *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setBTCOEX_PROFILE(apple80211_btcoex_profile *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn setBTCOEX_PROFILE_ACTIVE(apple80211_btcoex_profile_active_data *) AIRPORT_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
