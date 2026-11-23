@@ -442,6 +442,7 @@ public:
     int    iwx_p2p_binding_cmd(struct iwx_softc *, int);
     int    iwx_p2p_setup(struct iwx_softc *, uint8_t);
     int    iwx_p2p_set_channel(struct iwx_softc *, uint8_t);
+    int    iwx_p2p_flush(struct iwx_softc *);
     int    iwx_p2p_roc(struct iwx_softc *, uint8_t, uint16_t);
     void   iwx_p2p_session_cmd(struct iwx_softc *, uint32_t, uint32_t);
     int    iwx_aux_roc_add_sta(struct iwx_softc *, uint8_t);

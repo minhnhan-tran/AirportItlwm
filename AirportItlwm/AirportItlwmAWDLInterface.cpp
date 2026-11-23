@@ -1257,6 +1257,8 @@ publishListenState()
     setProperty("AWDLRocEndFailLastUs", ic->ic_awdl_roc_end_fail_last_us, 32);
     setProperty("AWDLRocChanChanges", ic->ic_awdl_roc_chan_changes, 32);
     setProperty("AWDLRocBandChanges", ic->ic_awdl_roc_band_changes, 32);
+    setProperty("AWDLP2PFlushes", ic->ic_awdl_p2p_flushes, 32);
+    setProperty("AWDLP2PFlushSkipped", ic->ic_awdl_p2p_flush_skipped, 32);
     char per[96];
     snprintf(per, sizeof(per), "6:%llu/%llu 44:%llu/%llu 149:%llu/%llu 161:%llu/%llu",
              fListenOnChan[0], fRxAFChan6, fListenOnChan[1], fRxAFChan44,

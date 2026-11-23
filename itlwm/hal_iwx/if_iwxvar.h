@@ -783,6 +783,8 @@ struct iwx_softc {
 	uint32_t sc_p2p_end_fail_short;	/* status 0 end within 90% of the dwell */
 	uint32_t sc_p2p_dwell_tu;
 	uint32_t sc_p2p_chan_changes;	/* PHY moved to another channel */
+	uint32_t sc_p2p_flush_skipped;	/* frames waiting but flush disabled/below threshold */
+	uint32_t sc_p2p_flushes;	/* P2P queue flushes before MAC/PHY moves */
 	uint32_t sc_p2p_band_changes;	/* ... across bands (unbind, REMOVE, ADD, bind) */
 	uint32_t sc_aux_roc_apply_gp2;	/* GP2 when the ROC was requested */
 	uint32_t sc_aux_roc_start_gp2;	/* GP2 of the TE START notification */

@@ -175,6 +175,9 @@ int itlwm_awdl_home_tx = 1;
 // 0 = no limit.
 extern int itlwm_awdl_home_qmax;
 int itlwm_awdl_home_qmax = 8;
+/* Flush the P2P queue before a MAC/PHY move only if at least this many frames wait (0 = never flush). */
+extern int itlwm_awdl_p2p_flush;
+int itlwm_awdl_p2p_flush = 1;
 
 // P2P (AWDL listen) firmware contexts, beside the station's MAC 0 / PHY 0.
 #define IWX_P2P_MAC_ID   1
@@ -244,6 +247,7 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_cool, CTLFLAG_RW | CTLFLAG_LOCKED, &i
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_dwell, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_dwell, 0, "llw0 active: max infra-channel AWDL listen, TU (16-512)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_share_phy, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_share_phy, 0, "AWDL listens on the infra channel share the station binding: 1 on (default), 0 separate PHY");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_tx, 0, "AWDL data on the infra channel outside listens: 1 send on the station queue, 0 hold for the next listen");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_p2p_flush, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_p2p_flush, 0, "Flush the P2P TX queue before a MAC/PHY move when at least this many frames wait (0 = never)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_qmax, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_qmax, 0, "Max frames on the station TX queue before unicast AWDL data waits (0 = no limit)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
@@ -395,6 +399,7 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_share_phy);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_p2p_flush);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
@@ -6951,9 +6956,18 @@ iwx_binding_cmd(struct iwx_softc *sc, struct iwx_node *in, uint32_t action)
     
     if (action == IWX_FW_CTXT_ACTION_REMOVE && sc->sc_p2p_shared) {
         /* Drop the P2P MAC first, as iwlwifi removes binding members one at a time. */
+        int gen = sc->sc_generation;
+        iwx_p2p_flush(sc);
+        if (gen != sc->sc_generation || !(sc->sc_flags & IWX_FLAG_BINDING_ACTIVE))
+            return ENXIO;
+        phyctxt = in->in_phyctxt;
+        if (phyctxt == NULL)
+            return EINVAL;
         sc->sc_p2p_shared = 0;
         sc->sc_ic.ic_awdl_listen_shared = 0;
         iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY);
+        if (gen != sc->sc_generation || !(sc->sc_flags & IWX_FLAG_BINDING_ACTIVE))
+            return ENXIO;
     }
     
     memset(&cmd, 0, sizeof(cmd));
@@ -10213,6 +10227,75 @@ iwx_p2p_binding_cmd(struct iwx_softc *sc, int add)
     return err;
 }
 
+/*
+ * Flush the P2P broadcast station's queue before its MAC changes binding or
+ * PHY: frames still queued while the radio moves made the LMAC assert
+ * (NMI_INTERRUPT_LMAC_FATAL) right after the next session protection.
+ */
+int ItlIwx::
+iwx_p2p_flush(struct iwx_softc *sc)
+{
+    struct iwx_rx_packet *pkt;
+    struct iwx_tx_path_flush_cmd_rsp *resp;
+    struct iwx_tx_path_flush_cmd flush_cmd = {
+        .sta_id = htole32(IWX_P2P_STA_ID),
+        .tid_mask = htole16(1 << IWX_MGMT_TID),
+    };
+    struct iwx_host_cmd hcmd = {
+        .id = IWX_TXPATH_FLUSH,
+        .len = { sizeof(flush_cmd), },
+        .data = { &flush_cmd, },
+        .flags = IWX_CMD_WANT_RESP,
+        .resp_pkt_len = sizeof(*pkt) + sizeof(*resp),
+    };
+    int err, i, n, resp_len, generation = sc->sc_generation;
+
+    if (itlwm_awdl_p2p_flush <= 0 || !sc->sc_p2p_sta || !sc->sc_p2p_queue ||
+        sc->sc_aux_roc_qid <= 0 || sc->sc_aux_roc_qid >= (int)nitems(sc->txq) ||
+        sc->txq[sc->sc_aux_roc_qid].queued < itlwm_awdl_p2p_flush) {
+        if (sc->sc_p2p_sta && sc->sc_p2p_queue && sc->sc_aux_roc_qid > 0 &&
+            sc->sc_aux_roc_qid < (int)nitems(sc->txq) && sc->txq[sc->sc_aux_roc_qid].queued)
+            sc->sc_p2p_flush_skipped++;
+        return 0;
+    }
+    sc->sc_p2p_flushes++;
+    err = iwx_send_cmd(sc, &hcmd);
+    if (err || generation != sc->sc_generation) {
+        err = err ? err : ENXIO;
+        goto out;
+    }
+    pkt = hcmd.resp_pkt;
+    if (!pkt || (pkt->hdr.group_id & IWX_CMD_FAILED_MSK)) {
+        err = EIO;
+        goto out;
+    }
+    resp_len = iwx_rx_packet_payload_len(pkt);
+    /* Some firmware versions don't provide a response. */
+    if (resp_len == 0)
+        goto out;
+    if (resp_len != (int)sizeof(*resp)) {
+        err = EIO;
+        goto out;
+    }
+    resp = (struct iwx_tx_path_flush_cmd_rsp *)pkt->data;
+    n = le16toh(resp->num_flushed_queues);
+    if (n > IWX_TX_FLUSH_QUEUE_RSP)
+        n = IWX_TX_FLUSH_QUEUE_RSP;
+    for (i = 0; i < n; i++) {
+        uint16_t qid = le16toh(resp->queues[i].queue_num);
+        uint16_t after = le16toh(resp->queues[i].read_after_flush);
+        struct iwx_tx_ring *txq;
+
+        if (qid != sc->sc_aux_roc_qid)
+            continue;
+        txq = &sc->txq[qid];
+        iwx_ampdu_txq_advance(sc, txq, IWX_AGG_SSN_TO_TXQ_IDX(after, txq->ring_count));
+    }
+out:
+    iwx_free_resp(sc, &hcmd);
+    return err;
+}
+
 /* Bands need REMOVE + ADD of the PHY, which must not be bound meanwhile. */
 int ItlIwx::
 iwx_p2p_set_channel(struct iwx_softc *sc, uint8_t chan)
@@ -10313,20 +10396,41 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
         ic->ic_awdl_promisc = (wantPromisc || sc->sc_bss_awdl_promisc) ? 1 : 0;
     }
     {
+        int gen = sc->sc_generation;
         struct iwx_phy_ctxt *sphy = in->in_phyctxt;
         bool share = itlwm_awdl_share_phy && sphy != NULL &&
             (sc->sc_flags & IWX_FLAG_BINDING_ACTIVE) && ic->ic_state == IEEE80211_S_RUN &&
             sphy->channel == &ic->ic_channels[chan];
+        if (share != (bool)sc->sc_p2p_shared ||
+            (!share && sc->sc_phyctxt[IWX_P2P_PHY_IDX].channel != &ic->ic_channels[chan])) {
+            if ((err = iwx_p2p_flush(sc)) != 0) {
+                if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                    return ENXIO;
+                stage = 12;
+                goto fail;
+            }
+            if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                return ENXIO;
+            sphy = in->in_phyctxt;
+            share = itlwm_awdl_share_phy && sphy != NULL &&
+                (sc->sc_flags & IWX_FLAG_BINDING_ACTIVE) && ic->ic_state == IEEE80211_S_RUN &&
+                sphy->channel == &ic->ic_channels[chan];
+        }
         if (share && !sc->sc_p2p_shared) {
             /* A MAC can be in one binding only: leave the P2P PHY's binding first. */
             if (sc->sc_p2p_bound) {
                 stage = 10;
-                if ((err = iwx_p2p_binding_cmd(sc, 0)) != 0)
+                if ((err = iwx_p2p_binding_cmd(sc, 0)) != 0) {
+                    if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                        return ENXIO;
                     goto fail;
+                }
                 sc->sc_p2p_bound = 0;
             }
             sc->sc_p2p_shared = 1;
             if (iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY) != 0) {
+                if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                    return ENXIO;
                 /* Fall back to the separate P2P PHY. */
                 sc->sc_p2p_shared = 0;
                 ic->ic_awdl_share_fail++;
@@ -10337,6 +10441,8 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
                 stage = 11;
                 sc->sc_p2p_shared = 0;
                 if ((err = iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY)) != 0) {
+                    if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                        return ENXIO;
                     sc->sc_p2p_shared = 1;
                     goto fail;
                 }
@@ -10347,12 +10453,18 @@ iwx_p2p_setup(struct iwx_softc *sc, uint8_t chan)
         ic->ic_awdl_listen_shared = share ? 1 : 0;
         if (!share) {
             stage = 5;
-            if ((err = iwx_p2p_set_channel(sc, chan)) != 0)
+            if ((err = iwx_p2p_set_channel(sc, chan)) != 0) {
+                if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                    return ENXIO;
                 goto fail;
+            }
             if (!sc->sc_p2p_bound) {
                 stage = 6;
-                if ((err = iwx_p2p_binding_cmd(sc, 1)) != 0)
+                if ((err = iwx_p2p_binding_cmd(sc, 1)) != 0) {
+                    if (gen != sc->sc_generation || !sc->sc_p2p_mac)
+                        return ENXIO;
                     goto fail;
+                }
                 sc->sc_p2p_bound = 1;
             }
         }
@@ -10595,6 +10707,8 @@ iwx_aux_roc_sync_counters(struct iwx_softc *sc)
     ic->ic_awdl_roc_end_fail_short = sc->sc_p2p_end_fail_short;
     ic->ic_awdl_roc_chan_changes = sc->sc_p2p_chan_changes;
     ic->ic_awdl_roc_band_changes = sc->sc_p2p_band_changes;
+    ic->ic_awdl_p2p_flushes = sc->sc_p2p_flushes;
+    ic->ic_awdl_p2p_flush_skipped = sc->sc_p2p_flush_skipped;
     ic->ic_awdl_roc_sta_err = sc->sc_aux_roc_sta_err;
     ic->ic_awdl_roc_sta_stage = sc->sc_aux_roc_sta_stage;
     ic->ic_awdl_roc_sta_code = sc->sc_aux_roc_sta_code;
@@ -15779,6 +15893,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_rt_dwell);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_share_phy);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_tx);
+        sysctl_register_oid(&sysctl__debug_itlwm_awdl_p2p_flush);
         sysctl_register_oid(&sysctl__debug_itlwm_awdl_home_qmax);
     sysctl_register_oid(&sysctl__debug_itlwm_ihs_ie);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);

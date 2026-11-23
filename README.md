@@ -84,16 +84,21 @@ including scanning, connecting, network switching, and private Wi-Fi addresses.
   on channel 36, the channel AWDL used). Over USB it works without the boot-arg.
   With `debug.itlwm.awdl_share_phy` [1], AWDL listens on the home network's channel
   join the station's firmware binding instead of time-sharing a second PHY: about
-  33–40 fps at about 1.9 Mbit/s, against 5–9 fps at under 1 Mbit/s with 0. Home
-  Wi-Fi stays connected, but its latency rises while the camera streams (gateway
-  ping averaged 0.5–0.9 s, against about 2 ms without the camera). While `llw0`
-  carries traffic, those listens use `debug.itlwm.awdl_rt_cool` [1] (pause after
+  33–40 fps at about 1.9 Mbit/s, against 5–9 fps at under 1 Mbit/s with 0. Before
+  the P2P MAC changes binding or PHY, its TX queue is flushed
+  (`debug.itlwm.awdl_p2p_flush` [1]: flush when at least this many frames wait, 0
+  never). Up to 2.7.88 the firmware asserted (`NMI_INTERRUPT_LMAC_FATAL`) after such
+  moves while frames were still queued, dropping home Wi-Fi for about 20 s. In the
+  2.7.90 test (4.5 min at 36–38 fps) the firmware did not crash and the gateway ping
+  stayed at a 0.5 ms median with no loss (2.7.88: 450 ms median, 17% loss).
+  `debug.itlwm.awdl_home_qmax` [8] caps unicast AWDL frames on the station's own TX
+  queue (0 = no cap). While `llw0` carries traffic, those listens use `debug.itlwm.awdl_rt_cool` [1] (pause after
   each listen, as a multiple of its length) and `debug.itlwm.awdl_rt_dwell` [64]
   (maximum listen, TU). Keep `awdl_rt_cool` above 0: back-to-back listens dropped
   the home network. `debug.itlwm.llw_tx` [1] set to 0 stops sending `llw0` traffic
   to the iPhone. `ioreg` counters: `LLW*` on `llw0`; `AWDLDataRx*`,
-  `AWDLListenHomeRT`, `AWDLListenShared` and `AWDLListenShareFail` on the AWDL
-  interface.
+  `AWDLListenHomeRT`, `AWDLListenShared`, `AWDLListenShareFail`, `AWDLTxFwHomeDefer`,
+  `AWDLP2PFlushes` and `AWDLP2PFlushSkipped` on the AWDL interface.
 - **iPhone Mirroring cannot be ported.** On a MacPro7,1 SMBIOS with Intel Bluetooth
   (BlueToolFixup), the Mac discovers the iPhone, opens the BLE link and the phone
   shows its passcode prompt, then the Mac aborts with "Unable to Connect to iPhone".

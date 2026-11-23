@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.90] — 2026-11-23
+
+### Added
+- `debug.itlwm.awdl_p2p_flush` (default 1, read-write at runtime): the P2P queue is flushed before a MAC/PHY move only when at least this many frames wait; 0 turns the flush off. It allows an A/B test of the 2.7.89 flush without a reboot.
+- `AWDLP2PFlushes` and `AWDLP2PFlushSkipped` properties count flushes done and skipped (frames were waiting but the flush was off or below the threshold).
+
+### Fixed
+- `iwx_p2p_setup` failure paths (stages 5, 6, 10, 11) now return ENXIO when a firmware reset happened during the command. Before, they restored `sc_p2p_shared` over the state `iwx_stop()` had cleared and counted a station error.
+
+### Notes
+- A/B test with Continuity Camera (Photo Booth, iPhone 16 Pro, 4.5 min in one stream): `awdl_p2p_flush` 1 gave 35.7 and 37.0 fps, 8 gave 37.1 fps and 0 gave 38.5 fps. Every phase had 0 `NMI_INTERRUPT_LMAC_FATAL` and 0 `DRIVER_RESET`, and the gateway ping stayed at a 0.5 ms median (p99 1 ms, no loss); 2.7.88 had a 450 ms median with 17% loss. The flush costs nothing measurable, so the default stays 1. The 9.5 fps seen in the 2.7.89 test did not reproduce. The 60 s phase with the flush off also stayed clean, so this test alone does not prove that the flush prevents the crash.
+
+## [2.7.89] — 2026-11-23
+
+### Fixed
+- The iwx firmware asserted (`NMI_INTERRUPT_LMAC_FATAL`, then `DRIVER_RESET` and a ~20 s `en1` outage) during Continuity Camera. Every crash followed a P2P MAC binding/PHY change and SESSION_PROTECTION_CMD while the P2P broadcast station's TX queue (txq 3) still held frames. The queue is now flushed (TXPATH_FLUSH + ring advance) before the P2P MAC moves between the shared and the separate binding, before it leaves the station's binding when that binding is removed, and before the separate PHY changes channel. New counter field `sc_p2p_flushes`.
+
 ## [2.7.88] — 2026-11-22
 
 ### Fixed

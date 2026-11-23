@@ -526,6 +526,8 @@ struct ieee80211com {
     uint32_t        ic_awdl_roc_end_fail_last_us;
     uint32_t        ic_awdl_roc_chan_changes;
     uint32_t        ic_awdl_roc_band_changes;
+    uint32_t        ic_awdl_p2p_flushes;
+    uint32_t        ic_awdl_p2p_flush_skipped;
     /* Every frame delivered while an aux ROC is between START and END. */
     uint32_t        ic_awdl_roc_rx_target;   /* on the ROC channel */
     uint32_t        ic_awdl_roc_rx_home;     /* on the station channel */
