@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.96] — 2026-11-23
+
+### Fixed
+- `debug.itlwm.ranging=3` now sends the FTM request to the peer named in the `RANGING_START` request (AWDL MAC at +0x32, channel at +0x38) instead of the last AWDL transmitter, which was a different device. The all-zero stop request is ignored.
+- `iwx_ftm_task` runs under the command gate like the other tasks, since `iwx_send_cmd_pdu` sleeps on it.
+
 ## [2.7.95] — 2026-11-23
 
 ### Fixed

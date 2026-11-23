@@ -313,19 +313,27 @@ itlwm_ftm_handler SYSCTL_HANDLER_ARGS
     return 0;
 }
 
-/* Called by AirportItlwmSkywalkInterface::setRANGING_START when debug.itlwm.ranging >= 3. */
-void itlwm_ftm_ranging_start(void)
+/*
+ * Called by AirportItlwmSkywalkInterface::setRANGING_START when debug.itlwm.ranging >= 3.
+ * START layout seen on Tahoe (2.7.95 capture, 512 byte dump): +0x32 peer AWDL MAC, +0x38 u16 channel,
+ * +0x3a u16 width in MHz; the stop request is all zero. The authentication key further in is never read.
+ */
+void itlwm_ftm_ranging_start(const uint8_t *req)
 {
     struct iwx_softc *sc = itlwm_dp_sc;
-    if (sc == NULL)
-        return;
     static const uint8_t zero[6] = { 0, 0, 0, 0, 0, 0 };
-    /* The START request layout is still unknown, so aim at the last AWDL transmitter. */
-    if (memcmp(sc->sc_awdl_rx_lastta, zero, 6) == 0) {
-        IOLog("AirportItlwm: ftm: no AWDL peer seen yet, not sending\n");
+    uint8_t mac[6];
+    uint16_t chan;
+
+    if (sc == NULL || req == NULL)
         return;
-    }
-    ItlIwx::iwx_ftm_request(sc, sc->sc_awdl_rx_lastta, itlwm_ftm_chan);
+    memcpy(mac, req + 0x32, sizeof(mac));
+    memcpy(&chan, req + 0x38, sizeof(chan));
+    if (memcmp(mac, zero, sizeof(mac)) == 0)
+        return;
+    if (chan < 1 || chan > 233)
+        chan = (uint16_t)itlwm_ftm_chan;
+    ItlIwx::iwx_ftm_request(sc, mac, chan);
 }
 
 SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItlwm diagnostics");
@@ -10189,6 +10197,15 @@ iwx_ftm_task(void *arg)
     struct iwx_tof_range_req_ap_entry *t = &cmd.ap[0];
     int err, s;
 
+    /* iwx_send_cmd_pdu() sleeps on the command gate, so run under it like iwx_newstate_task. */
+    if (!that->getMainWorkLoop()->inGate()) {
+        that->getMainCommandGate()->runAction(
+            [](OSObject *, void *arg0, void *, void *, void *) -> IOReturn {
+                iwx_ftm_task(arg0);
+                return kIOReturnSuccess;
+            }, arg);
+        return;
+    }
     if (!(ic->ic_ac.ac_if.if_flags & IFF_RUNNING) ||
         (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
         return;

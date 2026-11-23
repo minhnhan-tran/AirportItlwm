@@ -33,7 +33,7 @@ OSDefineMetaClassAndStructors(AirportItlwmSkywalkInterface, IO80211InfraProtocol
 // it. The dump never crosses the end of the page holding the first byte, which is mapped,
 // so a short request can't fault. AUTHENTICATE carries the ranging key and is never dumped.
 extern int itlwm_ranging;
-extern void itlwm_ftm_ranging_start(void);   // ItlIwx.cpp: Intel FTM request to the last AWDL peer
+extern void itlwm_ftm_ranging_start(const uint8_t *req);   // ItlIwx.cpp: Intel FTM request to the START peer
 
 static void rangingDump(const char *what, const void *data, size_t want)
 {
@@ -105,8 +105,8 @@ setRANGING_START(apple80211_ranging_start_request_t *data)
     if (itlwm_ranging > 0)
         rangingDump("START", data, 512);
     // Experiment: ask the Intel firmware to measure the peer itself (needs ranging >= 3).
-    if (itlwm_ranging >= 3)
-        itlwm_ftm_ranging_start();
+    if (itlwm_ranging >= 3 && data)
+        itlwm_ftm_ranging_start((const uint8_t *)data);
     return rangingSetResult("START");
 }
 
