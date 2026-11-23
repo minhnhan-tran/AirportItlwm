@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.98] — 2026-11-23
+
+### Fixed
+- Run `ItlIwx::iwx_ftm_request` under the `IOWorkLoop` command gate (matching `iwx_ftm_task`) and propagate status to `debug.itlwm.ftm`, avoiding races on `sc_ftm_addr`/`sc_ftm_chan`, `IFF_RUNNING`/`sc_flags`, and `iwx_add_task`.
+- Check `PAGE_SIZE` room in `itlwm_ftm_ranging_start` before reading `+0x32..+0x39` so short `RANGING_START` buffers near a page boundary cannot fault.
+- Clear `itlwm_dp_sc` in `ItlIwx::detach` (before destroying `systq`) and before `sysctl_unregister_oid` in `ItlIwx::free`.
+
 ## [2.7.97] — 2026-11-23
 
 ### Fixed

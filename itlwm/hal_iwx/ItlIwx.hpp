@@ -435,7 +435,7 @@ public:
     static void   iwx_awdl_sync_notify(struct ieee80211com *);
     static void   iwx_awdl_mac_task(void *);
     static void   iwx_ftm_task(void *);
-    static void   iwx_ftm_request(struct iwx_softc *, const uint8_t *, int);
+    static int    iwx_ftm_request(struct iwx_softc *, const uint8_t *, int);
     int    iwx_awdl_tx_frame(struct iwx_softc *, int, const uint8_t *, size_t);
     int    iwx_awdl_listen_v14(struct iwx_softc *, uint8_t, uint16_t);
     void   iwx_awdl_listen_abort(struct iwx_softc *);

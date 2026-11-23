@@ -305,12 +305,10 @@ itlwm_ftm_handler SYSCTL_HANDLER_ARGS
     struct iwx_softc *sc = itlwm_dp_sc;
     if (sc == NULL)
         return ENXIO;
-    if (!(sc->sc_ic.ic_ac.ac_if.if_flags & IFF_RUNNING) ||
-        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
-        return ENETDOWN;
-    strlcpy(itlwm_ftm_buf, buf, sizeof(itlwm_ftm_buf));
-    ItlIwx::iwx_ftm_request(sc, addr, chan);
-    return 0;
+    err = ItlIwx::iwx_ftm_request(sc, addr, chan);
+    if (err == 0)
+        strlcpy(itlwm_ftm_buf, buf, sizeof(itlwm_ftm_buf));
+    return err;
 }
 
 /*
@@ -326,6 +324,8 @@ void itlwm_ftm_ranging_start(const uint8_t *req)
     uint16_t chan;
 
     if (sc == NULL || req == NULL)
+        return;
+    if (PAGE_SIZE - ((uintptr_t)req & (PAGE_SIZE - 1)) < 0x3a)
         return;
     memcpy(mac, req + 0x32, sizeof(mac));
     memcpy(&chan, req + 0x38, sizeof(chan));
@@ -416,6 +416,8 @@ bool ItlIwx::attach(IOPCIDevice *device)
 void ItlIwx::
 detach(IOPCIDevice *device)
 {
+    if (itlwm_dp_sc == &com)
+        itlwm_dp_sc = NULL;
 #ifdef AIRPORT_VTD
     getMainCommandGate()->runAction(
         [](OSObject *, void *arg0, void *arg1, void *, void *) -> IOReturn {
@@ -495,6 +497,8 @@ releaseAll()
 void ItlIwx::free()
 {
     XYLog("%s\n", __FUNCTION__);
+    if (itlwm_dp_sc == &com)
+        itlwm_dp_sc = NULL;
     if (itlwm_sysctl_registered) {
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_home_listen);
         sysctl_unregister_oid(&sysctl__debug_itlwm_llw_tx);
@@ -513,7 +517,6 @@ void ItlIwx::free()
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
         sysctl_unregister_oid(&sysctl__debug_itlwm_ps);
-        itlwm_dp_sc = NULL;
         sysctl_unregister_oid(&sysctl__debug_itlwm_ht_siso);
         sysctl_unregister_oid(&sysctl__debug_itlwm_txagg);
         sysctl_unregister_oid(&sysctl__debug_itlwm);
@@ -10173,18 +10176,37 @@ iwx_awdl_mac_task(void *arg)
  * target, non-associated style request, 20 MHz HT on the given channel. The firmware
  * answers with TOF_RANGE_RESPONSE_NOTIF (v9), logged by itlwm_ftm_rsp().
  */
-void ItlIwx::
+int ItlIwx::
 iwx_ftm_request(struct iwx_softc *sc, const uint8_t *addr, int chan)
 {
-    if (sc == NULL || chan < 1 || chan > 233 ||
-        !(sc->sc_ic.ic_ac.ac_if.if_flags & IFF_RUNNING) ||
-        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
-        return;
+    if (sc == NULL || addr == NULL)
+        return ENXIO;
+    if (chan < 1 || chan > 233)
+        return EINVAL;
     ItlIwx *that = container_of(sc, ItlIwx, com);
+    if (!that->getMainWorkLoop() || !that->getMainCommandGate())
+        return ENXIO;
+    if (!that->getMainWorkLoop()->inGate()) {
+        int err = ENXIO;
+        IOReturn ret = that->getMainCommandGate()->runAction(
+            [](OSObject *, void *arg0, void *arg1, void *arg2, void *arg3) -> IOReturn {
+                *static_cast<int *>(arg3) = iwx_ftm_request(
+                    static_cast<struct iwx_softc *>(arg0),
+                    static_cast<const uint8_t *>(arg1),
+                    static_cast<int>(reinterpret_cast<intptr_t>(arg2)));
+                return kIOReturnSuccess;
+            }, sc, const_cast<uint8_t *>(addr),
+            reinterpret_cast<void *>(static_cast<intptr_t>(chan)), &err);
+        return ret == kIOReturnSuccess ? err : ENXIO;
+    }
+    if (!(sc->sc_ic.ic_ac.ac_if.if_flags & IFF_RUNNING) ||
+        (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL)))
+        return ENETDOWN;
     memcpy(sc->sc_ftm_addr, addr, IEEE80211_ADDR_LEN);
     sc->sc_ftm_chan = (uint8_t)chan;
     sc->sc_ftm_reqs++;
     that->iwx_add_task(sc, systq, &sc->sc_ftm_task);
+    return 0;
 }
 
 void ItlIwx::
