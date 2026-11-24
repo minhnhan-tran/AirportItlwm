@@ -576,7 +576,7 @@ infraTrafficBusy(uint64_t now)
         uint64_t pps = (dp * 1000000ULL) / dt;
         fInfraCheckUs = now;
         fInfraLastPkts = total;
-        if (pps >= 60 || dp >= 120) {
+        if (pps >= 60) {
             fInfraBusy = true;
             fInfraBusyUntilUs = now + 2000000ULL;
         } else if (now >= fInfraBusyUntilUs) {
@@ -1598,11 +1598,13 @@ scheduleOwnListen(uint64_t afterUs)
     int64_t lead = effectiveListenLeadUs();
     uint16_t pm = presenceMode();
     int64_t k = floorDiv((int64_t)from + lead - fRefUs, slot) + 1;
-    bool demand = awdlDemandActive(now);
-    // Track the peer's off-channel slots only when AWDL demand is active so
-    // an idle nearby device does not hijack our zero slots into constant RoCs.
+    // The peer we track (the phone during AirDrop) must be heard at least every
+    // few seconds or IO80211Family drops it from NDP (lastAF ~6 s). When our own
+    // slot keeps us home (or off AWDL) but the peer's slot at that time is on a
+    // non-home channel, listen there instead (on unless -itlawdlnopeerlisten).
+    // The infra hold in startListen (effectiveInfraNth) still throttles these.
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
-        fPeerPm && now - fPeerSeenUs <= kPeerStaleUs && demand;
+        fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
     bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data);
     // Realtime (llw0) stream: the iPhone sends in ITS home-channel slots, which our own low-power
     // sequence mostly leaves at 0 (2.7.81: peer 6/16 slots on 36, ours 1/16 -> ~4.5% home listen
