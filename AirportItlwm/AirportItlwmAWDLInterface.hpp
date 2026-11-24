@@ -284,6 +284,16 @@ private:
     uint32_t fListenNextDwellTU;
     uint64_t fListenAligned;
     uint64_t fListenNoSlot;
+    uint64_t fOOBActiveUntilUs;
+    uint64_t fDataActiveUntilUs;
+    uint64_t fInfraCheckUs;
+    uint64_t fInfraLastPkts;
+    uint64_t fInfraBusyUntilUs;
+    bool fInfraBusy;
+    bool fChanSeqHighDuty;
+    bool awdlDemandActive(uint64_t now) const;
+    bool infraTrafficBusy(uint64_t now);
+    unsigned effectiveInfraNth(uint64_t now);
     bool fPeerValid;
     ether_addr fPeerMac;
     uint64_t fPeerSeenUs;

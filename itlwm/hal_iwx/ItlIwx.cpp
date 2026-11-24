@@ -193,6 +193,10 @@ int itlwm_ranging = 2;
 int itlwm_ftm_chan = 6;
 extern int itlwm_awdl_infra_nth;
 int itlwm_awdl_infra_nth = 1;
+extern int itlwm_awdl_infra_busy_nth;
+int itlwm_awdl_infra_busy_nth = 11;
+extern int itlwm_awdl_infra_idle_nth;
+int itlwm_awdl_infra_idle_nth = 5;
 extern int itlwm_awdl_dpstats;
 int itlwm_awdl_dpstats = 1;
 static bool itlwm_sysctl_registered = false;
@@ -350,7 +354,9 @@ SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_p2p_flush, CTLFLAG_RW | CTLFLAG_LOCKED, 
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_qmax, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_qmax, 0, "Max frames on the station TX queue before unicast AWDL data waits (0 = no limit)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ranging, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ranging, 0, "Wi-Fi ranging ioctls (Auto Unlock): 0 unsupported, 1 log only, 2 log and accept ENABLE/START/AUTHENTICATE, 3 also send FTM");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ihs_ie, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ihs_ie, 0, "Instant Hotspot Apple IE in (Re)Association Requests: -1 off, 0-255 flags byte (default 1)");
-SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 none held (default 1)");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_nth, 0, "While associated and AWDL wants data, 1 in n off-channel AWDL listens goes out: 0 hold all, 1 adaptive auto (default 1), >1 fixed idle stride");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_busy_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_busy_nth, 0, "Adaptive idle off-channel listen stride when infra en1 is busy (coprime to 3, 0 hold, default 11)");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_infra_idle_nth, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_infra_idle_nth, 0, "Adaptive idle off-channel listen stride when infra en1 is idle (coprime to 3, 0 hold, default 5)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_dpstats, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_dpstats, 0, "Push AWDL data frame counts to IO80211Family (updateInterfaceDataStats): 0 off, 1 on (default 1)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_bss_promisc, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_bss_promisc, 0, "1: promiscuous station MAC for AWDL (breaks infra traffic)");
 SYSCTL_PROC(_debug_itlwm, OID_AUTO, dpdump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, NULL, 0,
@@ -513,6 +519,8 @@ void ItlIwx::free()
     sysctl_unregister_oid(&sysctl__debug_itlwm_ftm);
     sysctl_unregister_oid(&sysctl__debug_itlwm_ftm_chan);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_nth);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_busy_nth);
+    sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_infra_idle_nth);
     sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_dpstats);
         sysctl_unregister_oid(&sysctl__debug_itlwm_awdl_bss_promisc);
         sysctl_unregister_oid(&sysctl__debug_itlwm_dpdump);
@@ -5876,6 +5884,22 @@ iwx_rx_hwdecrypt(struct iwx_softc *sc, mbuf_t m, uint32_t rx_pkt_status,
         return 0;
     
     ni = ieee80211_find_rxnode(ic, wh);
+    if (ic->ic_opmode == IEEE80211_M_STA &&
+        ic->ic_state > IEEE80211_S_SCAN &&
+        ic->ic_bss != NULL && ni == ic->ic_bss &&
+        (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) &&
+        (!IEEE80211_ADDR_EQ(wh->i_addr2, ic->ic_bss->ni_bssid) ||
+         (!IEEE80211_IS_MULTICAST(wh->i_addr1) &&
+          !IEEE80211_ADDR_EQ(wh->i_addr1, ic->ic_myaddr)))) {
+        /*
+         * -itlawdlpromisc enables IWX_MAC_FILTER_IN_PROMISC on the P2P MAC, so
+         * encrypted frames from neighbor BSSes and AP->other-STA unicast frames
+         * reach here with PROTECTED set while ieee80211_find_rxnode returns
+         * ic_bss in STA mode. Drop silently without blaming ic_bss/inputErrors.
+         */
+        ieee80211_release_node(ic, ni);
+        return 1;
+    }
     /* Handle hardware decryption. */
     if (((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) != IEEE80211_FC0_TYPE_CTL)
         && (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) &&
@@ -16155,6 +16179,8 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     sysctl_register_oid(&sysctl__debug_itlwm_ftm);
     sysctl_register_oid(&sysctl__debug_itlwm_ftm_chan);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_nth);
+    sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_busy_nth);
+    sysctl_register_oid(&sysctl__debug_itlwm_awdl_infra_idle_nth);
     sysctl_register_oid(&sysctl__debug_itlwm_awdl_dpstats);
         itlwm_sysctl_registered = true;
     }

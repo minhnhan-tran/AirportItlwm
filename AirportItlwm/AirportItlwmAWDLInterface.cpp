@@ -517,6 +517,8 @@ static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData)
 }
 
 extern int itlwm_awdl_infra_nth;
+extern int itlwm_awdl_infra_busy_nth;
+extern int itlwm_awdl_infra_idle_nth;
 extern int itlwm_awdl_dpstats;
 
 /*
@@ -536,6 +538,68 @@ static unsigned awInfraListenNth(bool wantData)
     if (wantData && itlwm_awdl_infra_nth >= 0)
         return (unsigned)itlwm_awdl_infra_nth;
     return (unsigned)nth;
+}
+
+bool AirportItlwmAWDLInterface::
+awdlDemandActive(uint64_t now) const
+{
+    return fPeerTrafficActive > 0 ||
+        (fLLWActiveUntilUs && now < fLLWActiveUntilUs) ||
+        fOOBReqPending ||
+        fDataQCount > 0 ||
+        (fOOBActiveUntilUs && now < fOOBActiveUntilUs) ||
+        (fDataActiveUntilUs && now < fDataActiveUntilUs) ||
+        fChanSeqHighDuty;
+}
+
+bool AirportItlwmAWDLInterface::
+infraTrafficBusy(uint64_t now)
+{
+    if (!fController || !fController->fHalService)
+        return false;
+    ieee80211com *ic = fController->fHalService->get80211Controller();
+    if (!ic || ic->ic_state != IEEE80211_S_RUN) {
+        fInfraBusy = false;
+        return false;
+    }
+    uint64_t total = 0;
+    for (int i = 0; i < 4; i++)
+        total += ic->ic_wcl_tx_packets[i] + ic->ic_wcl_rx_packets[i];
+    if (!fInfraCheckUs) {
+        fInfraCheckUs = now;
+        fInfraLastPkts = total;
+        return false;
+    }
+    uint64_t dp = total >= fInfraLastPkts ? (total - fInfraLastPkts) : 0;
+    if (now > fInfraCheckUs && (dp >= 120 || now - fInfraCheckUs >= 500000ULL)) {
+        uint64_t dt = now - fInfraCheckUs;
+        uint64_t pps = (dp * 1000000ULL) / dt;
+        fInfraCheckUs = now;
+        fInfraLastPkts = total;
+        if (pps >= 60 || dp >= 120) {
+            fInfraBusy = true;
+            fInfraBusyUntilUs = now + 2000000ULL;
+        } else if (now >= fInfraBusyUntilUs) {
+            fInfraBusy = false;
+        }
+    }
+    return fInfraBusy;
+}
+
+unsigned AirportItlwmAWDLInterface::
+effectiveInfraNth(uint64_t now)
+{
+    ieee80211com *ic = fController && fController->fHalService ? fController->fHalService->get80211Controller() : nullptr;
+    unsigned base = awInfraListenNth(ic && ic->ic_awdl_want_data != 0);
+    if (base == 0)
+        return 0;
+    if (awdlDemandActive(now))
+        return 1;
+    if (base > 1)
+        return base;
+    if (infraTrafficBusy(now))
+        return itlwm_awdl_infra_busy_nth <= 0 ? 0 : (unsigned)itlwm_awdl_infra_busy_nth;
+    return itlwm_awdl_infra_idle_nth <= 0 ? 0 : (unsigned)itlwm_awdl_infra_idle_nth;
 }
 
 // Diagnostic: itlawdllistench=<n> sends every listen dwell to channel n
@@ -1280,6 +1344,8 @@ publishListenState()
     setProperty("AWDLRocRxHome", ic->ic_awdl_roc_rx_home, 32);
     setProperty("AWDLRocRxOther", ic->ic_awdl_roc_rx_other, 32);
     setProperty("AWDLRocRxLastChannel", ic->ic_awdl_roc_rx_last_chan, 32);
+    setProperty("AWDLDemandActive", awdlDemandActive(hostUs()) ? 1 : 0, 32);
+    setProperty("AWDLInfraBusy", fInfraBusy ? 1 : 0, 32);
 }
 
 void AirportItlwmAWDLInterface::
@@ -1317,7 +1383,7 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
     ieee80211com *ic = fController->fHalService->get80211Controller();
     if (home && chan != home && ic->ic_opmode == IEEE80211_M_STA &&
         ic->ic_state == IEEE80211_S_RUN && peerTrafficEff() == 0) {
-        unsigned nth = awInfraListenNth(ic->ic_awdl_want_data != 0);
+        unsigned nth = effectiveInfraNth(hostUs());
         if (!nth || ++fListenInfraSlot % nth) {
             fListenInfraHold++;
             if ((fListenInfraHold & 0xff) == 1)
@@ -1532,12 +1598,11 @@ scheduleOwnListen(uint64_t afterUs)
     int64_t lead = effectiveListenLeadUs();
     uint16_t pm = presenceMode();
     int64_t k = floorDiv((int64_t)from + lead - fRefUs, slot) + 1;
-    // The peer we track (the phone during AirDrop) must be heard at least every
-    // few seconds or IO80211Family drops it from NDP (lastAF ~6 s). When our own
-    // slot keeps us home (or off AWDL) but the peer's slot at that time is on a
-    // non-home channel, listen there instead (on unless -itlawdlnopeerlisten).
+    bool demand = awdlDemandActive(now);
+    // Track the peer's off-channel slots only when AWDL demand is active so
+    // an idle nearby device does not hijack our zero slots into constant RoCs.
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
-        fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
+        fPeerPm && now - fPeerSeenUs <= kPeerStaleUs && demand;
     bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data);
     // Realtime (llw0) stream: the iPhone sends in ITS home-channel slots, which our own low-power
     // sequence mostly leaves at 0 (2.7.81: peer 6/16 slots on 36, ours 1/16 -> ~4.5% home listen
@@ -1548,18 +1613,24 @@ scheduleOwnListen(uint64_t afterUs)
         uint16_t seq = (uint16_t)(fRefSeq + k * pm);
         uint8_t chan = ownChannelAt(seq);
         bool fromPeer = false;
-        if ((!chan || chan == home) && usePeer) {
-            unsigned pc = peerChannelAt((uint64_t)(fRefUs + k * slot + slot / 2));
-            if (pc && pc != home) {
+        bool peerHome = false;
+        unsigned pc = (usePeer || rtPeerHome)
+            ? peerChannelAt((uint64_t)(fRefUs + k * slot + slot / 2))
+            : 0;
+        // During Continuity Camera (llwRealtime), stay on home when the peer is also on home
+        // instead of jumping off-channel on our own Low Power slots (unless an OOB request waits).
+        if (rtPeerHome && pc == home && !fOOBReqPending) {
+            chan = (uint8_t)home;
+            peerHome = true;
+        } else {
+            if ((!chan || chan == home) && usePeer && pc && pc != home) {
                 chan = (uint8_t)pc;
                 fromPeer = true;
             }
-        }
-        bool peerHome = false;
-        if (!chan && rtPeerHome &&
-            peerChannelAt((uint64_t)(fRefUs + k * slot + slot / 2)) == home) {
-            chan = (uint8_t)home;
-            peerHome = true;
+            if (!chan && rtPeerHome && pc == home) {
+                chan = (uint8_t)home;
+                peerHome = true;
+            }
         }
         bool atHome = chan && chan == home;
         if (!chan || (atHome && (!homeOk ||
@@ -2046,6 +2117,7 @@ trySendPendingOOB()
         return;
     if (sendAWDLPayload(true, fOOBReqDst, fOOBReqBuf, fOOBReqLen, chan)) {
         fOOBReqPending = false;
+        fOOBActiveUntilUs = hostUs() + 4000000ULL;
         fTxOOBSent++;
         // Real firmware reports unicast action-frame TX status (event 69). The family waits for it
         // (EnsembleUMIStatusDone, 3 s) after sendUnicastMI; without it Continuity Camera's
@@ -2082,6 +2154,11 @@ enqueueData(mbuf_t m, uint8_t kind)
         mbuf_freem(m);
         return;
     }
+    uint64_t now = hostUs();
+    bool wasDemand = awdlDemandActive(now);
+    fDataActiveUntilUs = now + 4000000ULL;
+    if (kind == kDataKindLLW)
+        fLLWActiveUntilUs = now + 2000000ULL;
     unsigned qi = (fDataQHead + fDataQCount) % kDataQueueLen;
     fDataQ[qi] = m;
     fDataQKind[qi] = kind;
@@ -2096,11 +2173,13 @@ enqueueData(mbuf_t m, uint8_t kind)
                 flushData(ic->ic_awdl_listen_chan);
             } else if (unsigned home = currentHomeChannel()) {
                 if (canTxOnChannel((uint8_t)home) &&
-                    canFlushDataOnChannel((uint8_t)home, hostUs()))
+                    canFlushDataOnChannel((uint8_t)home, now))
                     flushData((uint8_t)home);
             }
         }
     }
+    if (fDataQCount && !wasDemand && awDataAllowed() && awListenAllowed() && fAWRunning)
+        scheduleAlignedListen(now);
 }
 
 // Ethernet -> 802.11 data (no QoS) + LLC/SNAP 00:17:f2 0x0800 + AWDL data
@@ -2367,6 +2446,7 @@ publishDataState()
 void AirportItlwmAWDLInterface::
 noteRxEth(const uint8_t *eth, size_t len, uint32_t total)
 {
+    fDataActiveUntilUs = hostUs() + 4000000ULL;
     // Runs in the AWDL RX path only, so the table needs no lock.
     int r = flowObsNote(fRxFlows, 12, &fRxFlowSeq, eth, len, total, true);
     if (r < 0)
@@ -2883,6 +2963,13 @@ init(IO80211Controller *controller, ether_addr *mac, unsigned int role, char con
     fListenParked = 0;
     fHomeListenNotBeforeUs = 0;
     fLLWActiveUntilUs = 0;
+    fOOBActiveUntilUs = 0;
+    fDataActiveUntilUs = 0;
+    fInfraCheckUs = 0;
+    fInfraLastPkts = 0;
+    fInfraBusyUntilUs = 0;
+    fInfraBusy = false;
+    fChanSeqHighDuty = false;
     fListenPeerHome = 0;
     fRTHomeListens = 0;
     fHomeListens = 0;
@@ -3472,11 +3559,17 @@ recordOOB(const void *req, bool autoReq)
         auto act = [](OSObject *, void *self, void *arg, void *, void *) -> IOReturn {
             auto that = static_cast<AirportItlwmAWDLInterface *>(self);
             auto c = static_cast<const OOBCopyCtx *>(arg);
+            uint64_t now = hostUs();
+            bool wasDemand = that->awdlDemandActive(now);
             memcpy(that->fOOBReqDst, c->dst, 6);
             memcpy(that->fOOBReqBuf, c->payload, c->len);
             that->fOOBReqLen = c->len;
             that->fOOBReqPending = true;
+            that->fOOBActiveUntilUs = now + 4000000ULL;
+            that->fDataActiveUntilUs = now + 4000000ULL;
             that->trySendPendingOOB();
+            if (that->fOOBReqPending && !wasDemand && awDataAllowed() && awListenAllowed() && that->fAWRunning)
+                that->scheduleAlignedListen(now);
             return kIOReturnSuccess;
         };
         if (fController && fController->getWorkLoop() && fController->getWorkLoop()->inGate())
@@ -3540,11 +3633,16 @@ setAWDL_SYNCHRONIZATION_CHANNEL_SEQUENCE(apple80211_awdl_sync_channel_sequence *
         return kIOReturnBadArgument;
     memcpy(fChanSeq, raw, sizeof(fChanSeq));
     fChanSeqValid = true;
+    unsigned activeSlots = 0;
     char seq[kChanSeqMax * 4 + 1] = {};
-    for (unsigned i = 0, n = 0; i < raw[kChanSeqCount] && n + 4 < sizeof(seq); i++) {
+    for (unsigned i = 0, n = 0; i < raw[kChanSeqCount]; i++) {
         const apple80211_channel *c = (const apple80211_channel *)(raw + kChanSeqEntries) + i;
-        n += snprintf(seq + n, sizeof(seq) - n, " %u", c->channel);
+        if (c->channel != 0)
+            activeSlots++;
+        if (n + 4 < sizeof(seq))
+            n += snprintf(seq + n, sizeof(seq) - n, " %u", c->channel);
     }
+    fChanSeqHighDuty = activeSlots > 4;
     AWDL_LOG("count %u enc %u step %u:%s", raw[kChanSeqCount], raw[6], raw[kChanSeqStep], seq);
     setProperty("AWDLChanSeq", seq);
     char hdr[32];

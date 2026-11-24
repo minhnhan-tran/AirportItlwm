@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.100] — 2026-11-24
+
+### Added
+- `debug.itlwm.awdl_infra_busy_nth` (default `11`, read-write) and `debug.itlwm.awdl_infra_idle_nth` (default `5`, read-write) in `ItlIwx`, both coprime to the 3 off-channel slots in macOS Low Power AWDL (`149, 6, 149`) so idle off-channel RoCs visit both channels `6` and `149` without phase-locking.
+
+### Changed
+- Demand-aware AWDL off-channel gating (`AirportItlwmAWDLInterface`): when `debug.itlwm.awdl_infra_nth` is at its default `1`, `effectiveInfraNth` automatically switches to `1` (unthrottled) and enables peer-slot tracking whenever real AWDL demand is active (`AWDLPeerTrafficActive`, active `llw0` TX or RX, pending or recent `AWDL_OOB_REQUEST`, queued or recent AWDL data TX/RX, or high-duty `AWDLChanSeq`), and drops to `awdl_infra_busy_nth` (`11`) during active `en1` infra traffic or `awdl_infra_idle_nth` (`5`) when idle.
+- Continuity Camera (`llw0`) home-channel priority: `enqueueData` now marks `llwRealtime()` active immediately on `llw0` TX (in addition to RX), and `scheduleOwnListen` keeps the radio on the infrastructure home channel whenever `llwRealtime()` is active and the peer's channel at that slot is the home channel (unless an OOB request is waiting).
+
+### Fixed
+- In `ItlIwx::iwx_rx_hwdecrypt`, silently drop encrypted frames from foreign BSSIDs or addressed to other unicast STAs when `-itlawdlpromisc` (`IWX_MAC_FILTER_IN_PROMISC`) is enabled in STA mode, instead of attributing them to `ic_bss` and inflating `is_ccmp_dec_errs` / `netStat->inputErrors` (`Ierrs`).
+
 ## [2.7.99] — 2026-11-23
 
 ### Changed
