@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.104] — 2026-11-26
+
+### Fixed
+- 2.7.103 demand gating no longer applies when the infra channel is itself an AWDL channel (6, 44, 149). On a shared-channel hotspot the home listen is the only way to hear AWDL frames, so gating it on demand would have stopped iPhone to Mac AirDrop discovery before any frame was heard.
+
 ## [2.7.103] — 2026-11-25
 
 ### Fixed

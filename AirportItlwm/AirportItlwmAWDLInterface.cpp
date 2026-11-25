@@ -511,6 +511,14 @@ homeListenMaxTU()
     return kHomeListenMaxTU;
 }
 
+// Infra on an AWDL channel (iPhone hotspot on 149, home on 6): the home slot is an ordinary AWDL
+// slot, no channel switch happens, and with awdl_bss_promisc=0 it is the only way to hear the
+// peer, so it cannot wait for demand (nothing creates demand before the first frame is heard).
+static bool awHomeIsAwdlChannel(unsigned home)
+{
+    return home == 6 || home == 44 || home == 149;
+}
+
 static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData, bool demandActive)
 {
     int mode = itlwm_awdl_home_listen;
@@ -1370,7 +1378,7 @@ maybeListen(uint32_t slotChannel, uint16_t seq)
     if (home == slotChannel) {
         uint64_t now = hostUs();
         if (!awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data,
-                                 awdlDemandActive(now)) ||
+                                 awdlDemandActive(now) || awHomeIsAwdlChannel(home)) ||
             now < fHomeListenNotBeforeUs) {
             fListenSkippedHome++;
             return;
@@ -1620,7 +1628,7 @@ scheduleOwnListen(uint64_t afterUs)
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
         fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
     bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data,
-                                      awdlDemandActive(now));
+                                      awdlDemandActive(now) || awHomeIsAwdlChannel(home));
     // Realtime (llw0) stream: the iPhone sends in ITS home-channel slots, which our own low-power
     // sequence mostly leaves at 0 (2.7.81: peer 6/16 slots on 36, ours 1/16 -> ~4.5% home listen
     // duty, 20-90 packet gaps every few hundred ms). Follow the peer's home slots as well.
@@ -1752,7 +1760,7 @@ listenTimerFired(OSObject *owner, IOTimerEventSource *)
         bool ok = home != that->fListenNextChan ||
             (that->fListenNextHome && awHomeListenAllowed(that->peerTrafficEff(),
                                                           ic->ic_awdl_want_data,
-                                                          that->awdlDemandActive(now)));
+                                                          that->awdlDemandActive(now) || awHomeIsAwdlChannel(home)));
         if (ok && !(++that->fListenSlot % that->fListenEveryNth)) {
             uint64_t before = that->fListenStarted;
             that->startListen(that->fListenNextChan, dwell, home, true);
