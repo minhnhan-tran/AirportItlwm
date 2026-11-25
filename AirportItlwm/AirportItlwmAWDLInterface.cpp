@@ -485,7 +485,12 @@ llwRealtime()
 {
     // airportd sets peer traffic during some Continuity Camera sessions too (2.7.77 test), so llw0
     // activity alone selects the realtime policy.
-    return hostUs() < fLLWActiveUntilUs;
+    bool rt = hostUs() < fLLWActiveUntilUs;
+    if (fController && fController->fHalService) {
+        if (ieee80211com *ic = fController->fHalService->get80211Controller())
+            ic->ic_awdl_llw_realtime = rt ? 1 : 0;
+    }
+    return rt;
 }
 
 uint32_t AirportItlwmAWDLInterface::
@@ -1381,6 +1386,7 @@ void AirportItlwmAWDLInterface::
 startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
 {
     ieee80211com *ic = fController->fHalService->get80211Controller();
+    (void)llwRealtime();
     if (home && chan != home && ic->ic_opmode == IEEE80211_M_STA &&
         ic->ic_state == IEEE80211_S_RUN && peerTrafficEff() == 0) {
         unsigned nth = effectiveInfraNth(hostUs());
@@ -1389,17 +1395,21 @@ startListen(unsigned chan, uint32_t dwellTU, unsigned home, bool aligned)
             if ((fListenInfraHold & 0xff) == 1)
                 setProperty("AWDLListenInfraHold", fListenInfraHold, 64);
             /*
-             * Holding listens is not enough: after the last one the P2P MAC
-             * stays bound to a PHY on the AWDL channel, and the firmware
-             * keeps sharing time with it (2.7.33: listens held, still 100%
-             * loss). One short listen on the infra channel moves that PHY
-             * there; repeat until it is accepted.
+             * Holding listens is not enough: if the P2P MAC stays bound to
+             * either the AWDL PHY (time-sharing, 2.7.33) or the station PHY
+             * (sc_p2p_shared=1, 2.7.100 1.5-4s stalls), STA traffic degrades.
+             * Unbind the P2P MAC when idle instead of starting a home-channel
+             * park RoC.
              */
-            if (fListenParkChan != home &&
-                ic->ic_awdl_listen(ic, (uint8_t)home, (uint16_t)kListenParkTU) == 0) {
-                fListenParkChan = home;
-                fListenParked++;
-                setProperty("AWDLListenParked", fListenParked, 64);
+            if (fListenParkChan != home) {
+                int perr = ic->ic_awdl_unlisten ?
+                    ic->ic_awdl_unlisten(ic) :
+                    ic->ic_awdl_listen(ic, (uint8_t)home, (uint16_t)kListenParkTU);
+                if (perr == 0) {
+                    fListenParkChan = home;
+                    fListenParked++;
+                    setProperty("AWDLListenParked", fListenParked, 64);
+                }
             }
             return;
         }
@@ -2159,8 +2169,13 @@ enqueueData(mbuf_t m, uint8_t kind)
     uint64_t now = hostUs();
     bool wasDemand = awdlDemandActive(now);
     fDataActiveUntilUs = now + 4000000ULL;
-    if (kind == kDataKindLLW)
+    if (kind == kDataKindLLW) {
         fLLWActiveUntilUs = now + 2000000ULL;
+        if (fController && fController->fHalService) {
+            if (ieee80211com *lic = fController->fHalService->get80211Controller())
+                lic->ic_awdl_llw_realtime = 1;
+        }
+    }
     unsigned qi = (fDataQHead + fDataQCount) % kDataQueueLen;
     fDataQ[qi] = m;
     fDataQKind[qi] = kind;

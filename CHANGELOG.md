@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.101] — 2026-11-25
+
+### Fixed
+- Eliminated the 1.5–4 s `en1` Wi-Fi stalls and ~29 Mbps throughput drop while AWDL is active (`AWDLAWRunning=Yes`): leaving `IWX_P2P_MAC_ID` bound on the station's PHY (`sc_p2p_shared=1`) between listens caused `STA_MAC` RX/TX to freeze until the next off-channel RoC cleared `sc_p2p_shared`. `IWX_SESSION_PROTECTION_NOTIF` end now schedules `iwx_p2p_unbind_timeout` (1 ms on the driver workloop, skipped during active `llw0` Continuity Camera streams so 36–38.5 fps shared-PHY streaming stays intact) to flush `txq 3` and unbind `P2P_MAC` from both `P2P_PHY` and `STA_PHY`.
+- `AirportItlwmAWDLInterface::startListen` now calls `ic_awdl_unlisten` instead of starting a 16 TU `AWDLListenParked` home-channel RoC when holding an off-channel slot, avoiding re-binding `P2P_MAC` onto `STA_PHY` during idle holds.
+
 ## [2.7.100] — 2026-11-24
 
 ### Added

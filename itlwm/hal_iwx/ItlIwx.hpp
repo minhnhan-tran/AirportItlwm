@@ -431,6 +431,9 @@ public:
     int    iwx_scan(struct iwx_softc *);
     static int    iwx_bgscan(struct ieee80211com *);
     static int    iwx_awdl_listen(struct ieee80211com *, uint8_t, uint16_t);
+    static int    iwx_awdl_unlisten(struct ieee80211com *);
+    static void   iwx_p2p_unbind_timeout(void *);
+    int           iwx_p2p_unbind(struct iwx_softc *);
     static int    iwx_awdl_tx(struct ieee80211com *, uint8_t, const uint8_t *, size_t);
     static void   iwx_awdl_sync_notify(struct ieee80211com *);
     static void   iwx_awdl_mac_task(void *);

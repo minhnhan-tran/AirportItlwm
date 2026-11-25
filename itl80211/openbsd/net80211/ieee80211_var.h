@@ -497,6 +497,7 @@ struct ieee80211com {
      */
     int             (*ic_awdl_listen)(struct ieee80211com *, uint8_t chan,
                         uint16_t dwell_tu);
+    int             (*ic_awdl_unlisten)(struct ieee80211com *);
     void            (*ic_awdl_roc_notify)(void *, uint8_t chan);
     void            *ic_awdl_roc_arg;
     /* Frames the firmware delivered on the listen channel while off-channel. */
@@ -546,6 +547,7 @@ struct ieee80211com {
     uint32_t        ic_awdl_tx_busy;     /* refused: not dwelling on chan */
     uint8_t         ic_awdl_listen_active;
     uint8_t         ic_awdl_listen_shared;   /* last listen ran on the station's binding (no channel switch) */
+    uint8_t         ic_awdl_llw_realtime;    /* 1 while Continuity Camera / llw0 realtime stream is active */
     uint32_t        ic_awdl_shared_listens;
     uint32_t        ic_awdl_share_fail;
     uint8_t         ic_awdl_promisc;

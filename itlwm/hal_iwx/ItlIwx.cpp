@@ -469,6 +469,7 @@ detach(IOPCIDevice *device)
     if (sc->sc_dmat)
         sc->sc_dmat->reclaim();
 #endif
+    timeout_free(&sc->sc_p2p_unbind_to);
     ieee80211_ifdetach(ifp);
 #ifndef AIRPORT_VTD
     taskq_destroy(systq);
@@ -10796,6 +10797,70 @@ iwx_p2p_session_cmd(struct iwx_softc *sc, uint32_t action, uint32_t duration_tu)
 }
 
 int ItlIwx::
+iwx_p2p_unbind(struct iwx_softc *sc)
+{
+    int err = 0;
+
+    if (!sc->sc_p2p_mac || sc->sc_aux_roc_pending || sc->sc_aux_roc_running)
+        return 0;
+    if (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))
+        return 0;
+    if (!sc->sc_p2p_shared && !sc->sc_p2p_bound)
+        return 0;
+
+    /* Flush the P2P TX queue before changing any MAC/PHY binding (2.7.89). */
+    if (sc->sc_p2p_sta && sc->sc_p2p_queue)
+        iwx_p2p_flush(sc);
+    if (sc->sc_p2p_bound) {
+        err = iwx_p2p_binding_cmd(sc, 0);
+        if (err == 0)
+            sc->sc_p2p_bound = 0;
+    }
+    if (sc->sc_p2p_shared) {
+        struct iwx_node *in = (struct iwx_node *)sc->sc_ic.ic_bss;
+        sc->sc_p2p_shared = 0;
+        sc->sc_ic.ic_awdl_listen_shared = 0;
+        if ((sc->sc_flags & IWX_FLAG_BINDING_ACTIVE) &&
+            in != NULL && in->in_phyctxt != NULL) {
+            err = iwx_binding_cmd(sc, in, IWX_FW_CTXT_ACTION_MODIFY);
+        }
+    }
+    return err;
+}
+
+void ItlIwx::
+iwx_p2p_unbind_timeout(void *arg)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)arg;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+
+    if (sc->sc_aux_roc_pending || sc->sc_aux_roc_running ||
+        sc->sc_ic.ic_awdl_llw_realtime)
+        return;
+    if (sc->sc_flags & (IWX_FLAG_SHUTDOWN | IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL |
+                        IWX_FLAG_SCANNING | IWX_FLAG_BGSCAN))
+        return;
+    that->iwx_p2p_unbind(sc);
+}
+
+int ItlIwx::
+iwx_awdl_unlisten(struct ieee80211com *ic)
+{
+    struct iwx_softc *sc = (struct iwx_softc *)IC2IFP(ic)->if_softc;
+    ItlIwx *that = container_of(sc, ItlIwx, com);
+
+    if (sc->sc_flags & (IWX_FLAG_SCANNING | IWX_FLAG_BGSCAN | IWX_FLAG_SHUTDOWN |
+                        IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL))
+        return EBUSY;
+    if (sc->sc_aux_roc_pending || sc->sc_aux_roc_running)
+        return EBUSY;
+    if (!iwx_p2p_listen_enabled())
+        return 0;
+    timeout_del(&sc->sc_p2p_unbind_to);
+    return that->iwx_p2p_unbind(sc);
+}
+
+int ItlIwx::
 iwx_p2p_roc(struct iwx_softc *sc, uint8_t chan, uint16_t duration_tu)
 {
     int err;
@@ -10811,6 +10876,7 @@ iwx_p2p_roc(struct iwx_softc *sc, uint8_t chan, uint16_t duration_tu)
         }
         return EBUSY;
     }
+    timeout_del(&sc->sc_p2p_unbind_to);
     if ((err = iwx_p2p_setup(sc, chan)) != 0)
         return err;
     sc->sc_p2p_wait = 0;
@@ -13170,6 +13236,7 @@ iwx_stop(struct _ifnet *ifp)
     iwx_del_task(sc, systq, &sc->chan_ctxt_task);
     iwx_del_task(sc, systq, &sc->sc_awdl_mac_task);
     iwx_del_task(sc, systq, &sc->sc_ftm_task);
+    timeout_del(&sc->sc_p2p_unbind_to);
     KASSERT(sc->task_refs.refs >= 1, "sc->task_refs.refs >= 1");
     //    refcnt_finalize(&sc->task_refs, "iwxstop");
     
@@ -14160,10 +14227,15 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                         ric->ic_awdl_listen_done++;
                     }
                     iwx_aux_roc_sync_counters(sc);
-                    if (le32toh(notif->status) && le32toh(notif->start) &&
-                        ric->ic_awdl_roc_notify) {
-                        ric->ic_awdl_roc_notify(ric->ic_awdl_roc_arg,
-                            ric->ic_awdl_listen_chan);
+                    if (le32toh(notif->status) && le32toh(notif->start)) {
+                        if (ric->ic_awdl_roc_notify) {
+                            ric->ic_awdl_roc_notify(ric->ic_awdl_roc_arg,
+                                ric->ic_awdl_listen_chan);
+                        }
+                    } else if (!sc->sc_aux_roc_pending && !sc->sc_aux_roc_running &&
+                               !ric->ic_awdl_llw_realtime &&
+                               (sc->sc_p2p_shared || sc->sc_p2p_bound)) {
+                        timeout_add_msec(&sc->sc_p2p_unbind_to, 1);
                     }
                     break;
                 }
@@ -16137,11 +16209,13 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     task_set(&sc->chan_ctxt_task, iwx_chan_ctxt_task, sc, "iwx_chan_ctxt_task");
     task_set(&sc->sc_awdl_mac_task, iwx_awdl_mac_task, sc, "iwx_awdl_mac_task");
     task_set(&sc->sc_ftm_task, iwx_ftm_task, sc, "iwx_ftm_task");
+    timeout_set(&sc->sc_p2p_unbind_to, iwx_p2p_unbind_timeout, sc);
     
     ic->ic_node_alloc = iwx_node_alloc;
     ic->ic_bgscan_start = iwx_bgscan;
     ic->ic_scan_restart_supported = true;
     ic->ic_awdl_listen = iwx_awdl_listen;
+    ic->ic_awdl_unlisten = iwx_awdl_unlisten;
     ic->ic_awdl_tx = iwx_awdl_tx;
     ic->ic_awdl_sync_notify = iwx_awdl_sync_notify;
     ic->ic_set_key = iwx_set_key;
