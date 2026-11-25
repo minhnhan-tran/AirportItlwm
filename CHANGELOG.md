@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.103] — 2026-11-25
+
+### Fixed
+- Gated idle home-channel AWDL listens (`AWDLListenHome`) on real AWDL demand (`awdlDemandActive()`, with `debug.itlwm.awdl_home_listen=3` preserving the legacy unconditional `wantData` mode). Live 50 ms traces on 2.7.102 showed every `AWDLListenHome` (`sc_p2p_shared=1` + `IWX_SESSION_PROTECTION_CMD` on `STA_PHY`) stalled `en1` unicast for 1.5–3.6 s until the next off-channel `P2P_PHY` RoC even when `sc_p2p_unbind_to` unbound `P2P_MAC` 60 ms later, because `awHomeListenAllowed()` still fired every ~1 s while AWDL was idle (`AWDLDemandActive=0`).
+
 ## [2.7.102] — 2026-11-25
 
 ### Fixed

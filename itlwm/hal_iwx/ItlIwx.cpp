@@ -344,7 +344,7 @@ SYSCTL_NODE(_debug, OID_AUTO, itlwm, CTLFLAG_RW | CTLFLAG_LOCKED, 0, "AirportItl
 SYSCTL_INT(_debug_itlwm, OID_AUTO, txagg, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_txagg, 0, "start TX A-MPDU sessions");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ht_siso, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ht_siso, 0, "single stream on HT-only links");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, ps, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_ps, 0, "802.11 power save while associated as a client");
-SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_listen, 0, "AWDL listens on the infra channel: 0 never, 1 peer traffic, 2 want data");
+SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_home_listen, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_home_listen, 0, "AWDL listens on the infra channel: 0 never, 1 peer traffic, 2 demand, 3 always want data");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, llw_tx, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_llw_tx, 0, "Send llw0 TX frames to the AWDL peer: 1 on, 0 drop");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_cool, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_cool, 0, "llw0 active: infra-channel AWDL listen cooldown, x dwell (0 back to back, max 8)");
 SYSCTL_INT(_debug_itlwm, OID_AUTO, awdl_rt_dwell, CTLFLAG_RW | CTLFLAG_LOCKED, &itlwm_awdl_rt_dwell, 0, "llw0 active: max infra-channel AWDL listen, TU (16-512)");

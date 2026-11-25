@@ -511,14 +511,16 @@ homeListenMaxTU()
     return kHomeListenMaxTU;
 }
 
-static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData)
+static bool awHomeListenAllowed(uint32_t peerTraffic, int wantData, bool demandActive)
 {
     int mode = itlwm_awdl_home_listen;
     if (mode <= 0)
         return false;
     if (peerTraffic > 0)
         return true;
-    return mode >= 2 && wantData;
+    if (mode >= 3)
+        return wantData != 0;
+    return mode >= 2 && wantData && demandActive;
 }
 
 extern int itlwm_awdl_infra_nth;
@@ -1366,8 +1368,10 @@ maybeListen(uint32_t slotChannel, uint16_t seq)
         slotChannel = forced;
     uint32_t dwell = fListenDwellTU;
     if (home == slotChannel) {
-        if (!awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data) ||
-            hostUs() < fHomeListenNotBeforeUs) {
+        uint64_t now = hostUs();
+        if (!awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data,
+                                 awdlDemandActive(now)) ||
+            now < fHomeListenNotBeforeUs) {
             fListenSkippedHome++;
             return;
         }
@@ -1615,7 +1619,8 @@ scheduleOwnListen(uint64_t afterUs)
     // The infra hold in startListen (effectiveInfraNth) still throttles these.
     bool usePeer = awPeerListenAllowed() && fPeerValid && fPeerChanValid && fPeerSlotUs &&
         fPeerPm && now - fPeerSeenUs <= kPeerStaleUs;
-    bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data);
+    bool homeOk = awHomeListenAllowed(peerTrafficEff(), ic->ic_awdl_want_data,
+                                      awdlDemandActive(now));
     // Realtime (llw0) stream: the iPhone sends in ITS home-channel slots, which our own low-power
     // sequence mostly leaves at 0 (2.7.81: peer 6/16 slots on 36, ours 1/16 -> ~4.5% home listen
     // duty, 20-90 packet gaps every few hundred ms). Follow the peer's home slots as well.
@@ -1745,7 +1750,9 @@ listenTimerFired(OSObject *owner, IOTimerEventSource *)
     if (ic && ic->ic_awdl_listen && ic->ic_state == IEEE80211_S_RUN && ic->ic_bss) {
         unsigned home = ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan);
         bool ok = home != that->fListenNextChan ||
-            (that->fListenNextHome && awHomeListenAllowed(that->peerTrafficEff(), ic->ic_awdl_want_data));
+            (that->fListenNextHome && awHomeListenAllowed(that->peerTrafficEff(),
+                                                          ic->ic_awdl_want_data,
+                                                          that->awdlDemandActive(now)));
         if (ok && !(++that->fListenSlot % that->fListenEveryNth)) {
             uint64_t before = that->fListenStarted;
             that->startListen(that->fListenNextChan, dwell, home, true);
