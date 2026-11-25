@@ -14235,7 +14235,13 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
                     } else if (!sc->sc_aux_roc_pending && !sc->sc_aux_roc_running &&
                                !ric->ic_awdl_llw_realtime &&
                                (sc->sc_p2p_shared || sc->sc_p2p_bound)) {
-                        timeout_add_msec(&sc->sc_p2p_unbind_to, 1);
+                        /*
+                         * Not immediately: while AWDL has demand, listens follow
+                         * each other within a few slots and iwx_p2p_roc() cancels
+                         * this timer, so the P2P MAC is not unbound/rebound around
+                         * every dwell. Only a real idle gap reaches the unbind.
+                         */
+                        timeout_add_msec(&sc->sc_p2p_unbind_to, 60);
                     }
                     break;
                 }

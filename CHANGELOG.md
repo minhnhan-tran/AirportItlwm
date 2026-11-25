@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.102] — 2026-11-25
+
+### Fixed
+- The idle P2P MAC unbind added in 2.7.101 now waits 60 ms after the session protection ends (it was 1 ms). `iwx_p2p_roc` cancels it when the next listen starts, so back-to-back AWDL listens during AirDrop or Continuity no longer unbind and rebind the P2P MAC around every dwell; only a real idle gap unbinds.
+
 ## [2.7.101] — 2026-11-25
 
 ### Fixed
